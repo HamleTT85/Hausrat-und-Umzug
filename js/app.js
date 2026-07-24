@@ -1,5 +1,5 @@
 // App-Einstieg: Hash-Router, Theme, Navigation, Hero-Shot.
-import { closeSheet, toast, savePhotoForItem } from './ui.js';
+import { closeSheet, toast, savePhotoForItem, bumpPhotoGeneration } from './ui.js';
 import { getMeta, setMeta } from './db.js';
 
 import { renderDashboard } from './views/dashboard.js';
@@ -30,6 +30,7 @@ const routes = [
 
 async function route() {
   closeSheet();
+  bumpPhotoGeneration(); // Bildspeicher der vorletzten Ansicht freigeben
   const hash = location.hash || '#/';
   const container = document.getElementById('view');
   for (const r of routes) {

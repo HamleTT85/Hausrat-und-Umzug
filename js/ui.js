@@ -65,12 +65,30 @@ export function catIcon(category) {
 // bei vielen Karten läuft damit v.a. iOS Safari voll („Zu wenig Speicher“).
 // Für ältere Fotos ohne Thumbnail wird es beim ersten Anzeigen erzeugt und
 // gespeichert (reine Ergänzung — der Datensatz bleibt unangetastet).
-const urlCache = new Map();
+//
+// WICHTIG gegen das schleichende Volllaufen über eine lange Sitzung:
+// Object-URLs werden generationsweise wieder freigegeben. Bei jedem
+// Ansichtswechsel ruft der Router releaseStaleThumbs() auf; damit hält der
+// Browser nur noch die Bilder der aktuellen (und der zuletzt verlassenen)
+// Ansicht im Speicher, statt alle je gezeigten Fotos.
+const urlCache = new Map();   // photoId → { url, gen }
 const urlPending = new Map();
+let photoGen = 0;
+
+export function bumpPhotoGeneration() {
+  photoGen++;
+  for (const [id, entry] of urlCache) {
+    if (entry.gen < photoGen - 1) {   // seit >1 Ansicht nicht mehr benutzt
+      URL.revokeObjectURL(entry.url);
+      urlCache.delete(id);
+    }
+  }
+}
 
 export function photoUrl(photoId) {
   if (!photoId) return Promise.resolve(null);
-  if (urlCache.has(photoId)) return Promise.resolve(urlCache.get(photoId));
+  const cached = urlCache.get(photoId);
+  if (cached) { cached.gen = photoGen; return Promise.resolve(cached.url); }
   if (urlPending.has(photoId)) return urlPending.get(photoId);
 
   const promise = (async () => {
@@ -86,7 +104,7 @@ export function photoUrl(photoId) {
       }
     }
     const url = URL.createObjectURL(blob);
-    urlCache.set(photoId, url);
+    urlCache.set(photoId, { url, gen: photoGen });
     return url;
   })();
 
@@ -150,6 +168,13 @@ export async function savePhotoForItem(itemId, fileOrBlob, { asCover = false } =
 // 3. Automatischer zweiter Versuch nach kurzer Pause, falls der Browser
 //    gerade keinen Speicher freigeben konnte.
 let imageQueue = Promise.resolve();
+// Eine einzige, wiederverwendete Canvas — iOS Safari gibt den Grafikspeicher
+// vieler einzeln erzeugter Canvas-Elemente nicht zuverlässig frei.
+let sharedCanvas = null;
+function getCanvas() {
+  if (!sharedCanvas) sharedCanvas = document.createElement('canvas');
+  return sharedCanvas;
+}
 
 export function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
   const task = imageQueue.then(async () => {
@@ -171,7 +196,7 @@ export function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
 async function attemptDownscale(fileOrBlob, maxEdge, quality) {
   const url = URL.createObjectURL(fileOrBlob);
   const img = new Image();
-  const canvas = document.createElement('canvas');
+  const canvas = getCanvas();
   let bmp = null;
   try {
     // 1. Maße günstig ermitteln (liest nur den Bild-Header)
