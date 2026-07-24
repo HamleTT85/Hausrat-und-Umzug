@@ -2,7 +2,7 @@
 // auswählen & übernehmen. Unterstützt einzelne Fotos und ganze Bilderserien.
 import { db, uid } from '../db.js';
 import { CATEGORIES, CONDITIONS, newItem, fmtEuro } from '../data.js';
-import { esc, toast, downscaleImage } from '../ui.js';
+import { esc, toast, downscaleImage, blobToBase64 } from '../ui.js';
 import { analyzePhoto, getAiSettings, CAPTURE_MODES } from '../ai.js';
 
 export async function renderCapture(container, query = '') {
@@ -95,11 +95,15 @@ export async function renderCapture(container, query = '') {
   container.querySelector('#cap-gallery').onchange = start;
 
   async function processFiles(files) {
-    // 1. Alle Bilder verkleinern
+    // 1. Alle Bilder verkleinern (Vorschau als Object-URL — spart viel Speicher)
     const shots = [];
     for (const file of files) {
-      try { shots.push(await downscaleImage(file)); }
-      catch { toast('Ein Bild konnte nicht gelesen werden'); }
+      try {
+        const { blob } = await downscaleImage(file);
+        shots.push({ blob, url: URL.createObjectURL(blob) });
+      } catch (err) {
+        toast(`⚠️ Ein Bild konnte nicht gelesen werden${err?.message ? `: ${err.message}` : ''}`, 4000);
+      }
     }
     if (!shots.length) return;
 
@@ -117,7 +121,8 @@ export async function renderCapture(container, query = '') {
       shots[i].found = [];
       if (apiKey && !aiFailed) {
         try {
-          shots[i].found = await analyzePhoto(shots[i].base64, { mode, focus });
+          const base64 = await blobToBase64(shots[i].blob);
+          shots[i].found = await analyzePhoto(base64, { mode, focus });
         } catch (err) {
           aiFailed = err.message; // z.B. Key ungültig → nicht für jedes Foto erneut probieren
         }
@@ -131,10 +136,10 @@ export async function renderCapture(container, query = '') {
 
 function thumbStrip(shots, activeIdx = -1) {
   if (shots.length === 1) {
-    return `<div class="capture-preview mb-2"><img src="${shots[0].dataUrl}" alt="Aufnahme"></div>`;
+    return `<div class="capture-preview mb-2"><img src="${shots[0].url}" alt="Aufnahme"></div>`;
   }
   return `<div class="gallery mb-2">${shots.map((s, i) =>
-    `<img src="${s.dataUrl}" alt="Foto ${i + 1}" style="height:110px;${i === activeIdx ? 'outline:3px solid var(--accent)' : ''}">`).join('')}</div>`;
+    `<img src="${s.url}" alt="Foto ${i + 1}" style="height:110px;${i === activeIdx ? 'outline:3px solid var(--accent)' : ''}">`).join('')}</div>`;
 }
 
 function renderResults(stage, { shots, aiFailed, getRoomId }) {
@@ -160,7 +165,7 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
       <div class="mb-2">
         ${shots.length > 1 ? `
           <div class="row mb-1" style="gap:10px">
-            <img src="${sh.dataUrl}" alt="Foto ${si + 1}" style="width:64px;height:48px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+            <img src="${sh.url}" alt="Foto ${si + 1}" style="width:64px;height:48px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
             <b>Foto ${si + 1}</b>
             <span class="small muted">${sh.found?.length || 0} erkannt</span>
           </div>` : ''}
@@ -179,52 +184,64 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
       ${shots.length === 1 ? `<button class="btn btn-block" id="cap-manual">✍️ ${totalFound ? 'Stattdessen nur' : 'Nur'} 1 Eintrag mit diesem Foto anlegen</button>` : ''}
     </div>`;
 
+  const releaseShots = () => shots.forEach((sh) => sh.url && URL.revokeObjectURL(sh.url));
+
   stage.querySelector('#cap-adopt')?.addEventListener('click', async () => {
     const roomId = getRoomId();
     let created = 0, firstId = null;
 
-    for (let si = 0; si < shots.length; si++) {
-      const sh = shots[si];
-      const selected = (sh.found || []).filter((_, fi) => stage.querySelector(`[data-check="${si}:${fi}"]`)?.checked);
-      if (!selected.length) continue;
+    try {
+      for (let si = 0; si < shots.length; si++) {
+        const sh = shots[si];
+        const selected = (sh.found || []).filter((_, fi) => stage.querySelector(`[data-check="${si}:${fi}"]`)?.checked);
+        if (!selected.length) continue;
 
-      const photo = { id: uid('ph'), itemId: null, blob: sh.blob, createdAt: new Date().toISOString() };
-      await db.put('photos', photo);
+        const photo = { id: uid('ph'), itemId: null, blob: sh.blob, createdAt: new Date().toISOString() };
+        await db.put('photos', photo);
 
-      let photoOwner = null;
-      for (const f of selected) {
-        const it = newItem(roomId, {
-          name: f.name,
-          category: CATEGORIES[f.category] ? f.category : 'sonstiges',
-          condition: CONDITIONS[f.condition] ? f.condition : 'gut',
-          ageYears: f.age_years,
-          material: f.material || '',
-          value: f.value_eur,
-          quantity: Math.max(1, f.quantity || 1),
-          notes: f.notes || '',
-          photoIds: [photo.id],
-        });
-        await db.put('items', it);
-        created++;
-        firstId = firstId || it.id;
-        photoOwner = photoOwner || it.id;
+        let photoOwner = null;
+        for (const f of selected) {
+          const it = newItem(roomId, {
+            name: f.name,
+            category: CATEGORIES[f.category] ? f.category : 'sonstiges',
+            condition: CONDITIONS[f.condition] ? f.condition : 'gut',
+            ageYears: f.age_years,
+            material: f.material || '',
+            value: f.value_eur,
+            quantity: Math.max(1, f.quantity || 1),
+            notes: f.notes || '',
+            photoIds: [photo.id],
+          });
+          await db.put('items', it);
+          created++;
+          firstId = firstId || it.id;
+          photoOwner = photoOwner || it.id;
+        }
+        await db.put('photos', { ...photo, itemId: photoOwner });
       }
-      await db.put('photos', { ...photo, itemId: photoOwner });
+    } catch (err) {
+      return toast(`⚠️ Speichern fehlgeschlagen: ${err.message}`, 5000);
     }
 
     if (!created) return toast('Nichts ausgewählt');
+    releaseShots();
     toast(`${created} ${created === 1 ? 'Gegenstand' : 'Gegenstände'} angelegt 🎉`);
     location.hash = created === 1 ? `#/item/${firstId}` : roomHash(await db.get('rooms', roomId));
   });
 
   stage.querySelector('#cap-manual')?.addEventListener('click', async () => {
     const roomId = getRoomId();
-    const photo = { id: uid('ph'), itemId: null, blob: shots[0].blob, createdAt: new Date().toISOString() };
-    await db.put('photos', photo);
-    const it = newItem(roomId, { name: '', photoIds: [photo.id] });
-    await db.put('items', it);
-    await db.put('photos', { ...photo, itemId: it.id });
-    location.hash = `#/item/${it.id}`;
+    try {
+      const photo = { id: uid('ph'), itemId: null, blob: shots[0].blob, createdAt: new Date().toISOString() };
+      await db.put('photos', photo);
+      const it = newItem(roomId, { name: '', photoIds: [photo.id] });
+      await db.put('items', it);
+      await db.put('photos', { ...photo, itemId: it.id });
+      releaseShots();
+      location.hash = `#/item/${it.id}`;
+    } catch (err) {
+      toast(`⚠️ Speichern fehlgeschlagen: ${err.message}`, 5000);
+    }
   });
 }
 

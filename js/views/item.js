@@ -1,7 +1,7 @@
 // Detailseite: Fotogalerie, alle Eigenschaften, Status, QR-Code, Verkauf.
 import { db, uid, deleteItemDeep, getMeta } from '../db.js';
 import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMovePlan } from '../data.js';
-import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, downscaleImage, catIcon } from '../ui.js';
+import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, downscaleImage, blobToBase64, catIcon } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
 
@@ -193,14 +193,19 @@ export async function renderItem(container, itemId) {
   // Foto hinzufügen
   container.querySelector('#add-photo').onchange = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const { blob } = await downscaleImage(file);
-    const photo = { id: uid('ph'), itemId: item.id, blob, createdAt: new Date().toISOString() };
-    await db.put('photos', photo);
-    item.photoIds = [...(item.photoIds || []), photo.id];
-    await db.put('items', { ...item, updatedAt: new Date().toISOString() });
-    toast('Foto hinzugefügt 📷');
-    renderItem(container, itemId);
+    try {
+      const { blob } = await downscaleImage(file);
+      const photo = { id: uid('ph'), itemId: item.id, blob, createdAt: new Date().toISOString() };
+      await db.put('photos', photo);
+      item.photoIds = [...(item.photoIds || []), photo.id];
+      await db.put('items', { ...item, updatedAt: new Date().toISOString() });
+      toast('Foto hinzugefügt 📷');
+      renderItem(container, itemId);
+    } catch (err) {
+      toast(`⚠️ Foto konnte nicht gespeichert werden: ${err.message}`, 5000);
+    }
   };
 
   // Foto-Optionen (löschen / als Titelbild)
@@ -236,7 +241,7 @@ export async function renderItem(container, itemId) {
       let base64 = null;
       if (current.photoIds?.length) {
         const p = await db.get('photos', current.photoIds[0]);
-        if (p?.blob) base64 = (await downscaleImage(p.blob, 1024)).base64;
+        if (p?.blob) base64 = await blobToBase64((await downscaleImage(p.blob, 1024)).blob);
       }
       const s = await suggestListing(current, base64);
       container.querySelector('#sale-desc').value = `${s.title}\n\n${s.description}`;

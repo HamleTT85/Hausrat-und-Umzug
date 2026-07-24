@@ -54,6 +54,11 @@ export async function renderSettings(container) {
     </div>
 
     <div class="card mb-2">
+      <div class="card-title">📊 Speicher</div>
+      <p class="small muted" id="storage-info">Wird ermittelt …</p>
+    </div>
+
+    <div class="card mb-2">
       <div class="card-title">🧨 Gefahrenzone</div>
       <p class="small muted">Aktuell ${itemCount} Gegenstände gespeichert.</p>
       <button class="btn btn-danger" id="do-wipe">Alle Daten löschen</button>
@@ -61,6 +66,24 @@ export async function renderSettings(container) {
 
     <p class="tc small faint">HausRat · läuft komplett lokal in deinem Browser · v1.0</p>
   `;
+
+  // Speicher-Nutzung anzeigen (App-Daten im Browser, nicht der Handy-Speicher)
+  (async () => {
+    const info = container.querySelector('#storage-info');
+    try {
+      const est = await navigator.storage?.estimate?.();
+      const persisted = await navigator.storage?.persisted?.();
+      if (est?.quota) {
+        const used = (est.usage / 1048576).toFixed(1);
+        const quota = Math.round(est.quota / 1048576);
+        info.textContent = `${used} MB von ca. ${quota.toLocaleString('de-DE')} MB belegt (App-Speicher im Browser)${persisted ? ' · dauerhaft geschützt ✅' : ''}`;
+      } else {
+        info.textContent = 'Keine Angabe von diesem Browser verfügbar.';
+      }
+    } catch {
+      info.textContent = 'Keine Angabe von diesem Browser verfügbar.';
+    }
+  })();
 
   container.querySelector('#save-ai').onclick = async () => {
     await setMeta('apiKey', container.querySelector('#set-key').value.trim());

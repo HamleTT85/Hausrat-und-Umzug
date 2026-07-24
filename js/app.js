@@ -75,3 +75,7 @@ async function initTheme() {
 
 window.addEventListener('hashchange', route);
 initTheme().then(route);
+
+// Browser bitten, unsere Daten dauerhaft zu behalten (verhindert Löschung
+// bei Speicherdruck und erhöht auf manchen Geräten das Kontingent).
+navigator.storage?.persist?.().catch(() => {});

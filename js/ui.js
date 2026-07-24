@@ -94,19 +94,52 @@ export async function renderItemCard(item) {
     </a>`;
 }
 
-// Bild verkleinern (max. Kante), als JPEG-Blob + DataURL für die KI.
+// Bild verkleinern (max. Kante) → kompakter JPEG-Blob.
+// Wichtig für iOS Safari: Canvas-Speicher wird dort erst beim Nullsetzen der
+// Maße freigegeben — ohne das schlägt schon das zweite Kamerafoto mit einem
+// „Zu wenig Speicher“-Fehler fehl.
 export async function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
-  const bmp = await createImageBitmap(fileOrBlob);
-  const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * scale);
-  const h = Math.round(bmp.height * scale);
+  const { source, width, height, cleanup } = await decodeImage(fileOrBlob);
   const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
-  const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', quality));
-  const dataUrl = canvas.toDataURL('image/jpeg', quality);
-  bmp.close?.();
-  return { blob, dataUrl, base64: dataUrl.split(',')[1] };
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Bild konnte nicht verarbeitet werden'))), 'image/jpeg', quality));
+    return { blob };
+  } finally {
+    canvas.width = 0; canvas.height = 0; // Canvas-Speicher sofort freigeben (iOS!)
+    cleanup();
+  }
+}
+
+async function decodeImage(fileOrBlob) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(fileOrBlob);
+      return { source: bmp, width: bmp.width, height: bmp.height, cleanup: () => bmp.close?.() };
+    } catch { /* Fallback über <img> unten */ }
+  }
+  const url = URL.createObjectURL(fileOrBlob);
+  try {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    if (img.decode) await img.decode();
+    else await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden')); });
+    return { source: img, width: img.naturalWidth, height: img.naturalHeight, cleanup: () => URL.revokeObjectURL(url) };
+  } catch (err) {
+    URL.revokeObjectURL(url);
+    throw err;
+  }
+}
+
+/** Blob → reines Base64 (ohne data:-Präfix), z.B. für die KI-Analyse. */
+export async function blobToBase64(blob) {
+  const { blobToDataUrl } = await import('./db.js');
+  return (await blobToDataUrl(blob)).split(',')[1];
 }
 
 export function debounce(fn, ms = 250) {
