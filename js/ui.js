@@ -66,24 +66,33 @@ export function catIcon(category) {
 // Für ältere Fotos ohne Thumbnail wird es beim ersten Anzeigen erzeugt und
 // gespeichert (reine Ergänzung — der Datensatz bleibt unangetastet).
 const urlCache = new Map();
+const urlPending = new Map();
 
-export async function photoUrl(photoId) {
-  if (!photoId) return null;
-  if (urlCache.has(photoId)) return urlCache.get(photoId);
-  const p = await db.get('photos', photoId);
-  if (!p || !p.blob) return null;
-  let blob = p.thumb;
-  if (!blob) {
-    try {
-      blob = (await downscaleImage(p.blob, 640, 0.72)).blob;
-      await db.put('photos', { ...p, thumb: blob });
-    } catch {
-      blob = p.blob; // Notfall: dann eben das Original
+export function photoUrl(photoId) {
+  if (!photoId) return Promise.resolve(null);
+  if (urlCache.has(photoId)) return Promise.resolve(urlCache.get(photoId));
+  if (urlPending.has(photoId)) return urlPending.get(photoId);
+
+  const promise = (async () => {
+    const p = await db.get('photos', photoId);
+    if (!p || !p.blob) return null;
+    let blob = p.thumb;
+    if (!blob) {
+      try {
+        blob = (await downscaleImage(p.blob, 640, 0.72)).blob;
+        await db.put('photos', { ...p, thumb: blob });
+      } catch {
+        blob = p.blob; // Notfall: dann eben das Original
+      }
     }
-  }
-  const url = URL.createObjectURL(blob);
-  urlCache.set(photoId, url);
-  return url;
+    const url = URL.createObjectURL(blob);
+    urlCache.set(photoId, url);
+    return url;
+  })();
+
+  urlPending.set(photoId, promise);
+  promise.finally(() => urlPending.delete(photoId));
+  return promise;
 }
 
 /** Volle Auflösung (unkachiert) — Aufrufer muss die URL wieder freigeben. */
@@ -132,45 +141,69 @@ export async function savePhotoForItem(itemId, fileOrBlob, { asCover = false } =
   return photo;
 }
 
-// Bild verkleinern (max. Kante) → kompakter JPEG-Blob.
-// Wichtig für iOS Safari: Canvas-Speicher wird dort erst beim Nullsetzen der
-// Maße freigegeben — ohne das schlägt schon das zweite Kamerafoto mit einem
-// „Zu wenig Speicher“-Fehler fehl.
-export async function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
-  const { source, width, height, cleanup } = await decodeImage(fileOrBlob);
+// ---------- Bildverkleinerung (speicherschonend) ----------
+// Drei Schutzmechanismen gegen „Zu wenig Speicher“ (v.a. iOS Safari):
+// 1. STRIKTE WARTESCHLANGE: Es läuft immer nur EINE Bildverarbeitung —
+//    z.B. beim Nacherzeugen vieler Thumbnails sonst 20+ parallele Decodes.
+// 2. Browser-internes Resize (createImageBitmap mit resizeWidth) — vermeidet
+//    die riesige Vollauflösungs-Canvas, wo unterstützt.
+// 3. Automatischer zweiter Versuch nach kurzer Pause, falls der Browser
+//    gerade keinen Speicher freigeben konnte.
+let imageQueue = Promise.resolve();
+
+export function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
+  const task = imageQueue.then(async () => {
+    try {
+      return await attemptDownscale(fileOrBlob, maxEdge, quality);
+    } catch (err1) {
+      await new Promise((r) => setTimeout(r, 800)); // Browser Speicher freigeben lassen
+      try {
+        return await attemptDownscale(fileOrBlob, Math.min(maxEdge, 1120), quality);
+      } catch (err2) {
+        throw new Error(`Bildverarbeitung fehlgeschlagen (${err2?.message || err1?.message || 'unbekannt'}) — bitte App einmal neu laden und erneut versuchen`);
+      }
+    }
+  });
+  imageQueue = task.catch(() => {});
+  return task;
+}
+
+async function attemptDownscale(fileOrBlob, maxEdge, quality) {
+  const url = URL.createObjectURL(fileOrBlob);
+  const img = new Image();
   const canvas = document.createElement('canvas');
+  let bmp = null;
   try {
-    const scale = Math.min(1, maxEdge / Math.max(width, height));
-    canvas.width = Math.max(1, Math.round(width * scale));
-    canvas.height = Math.max(1, Math.round(height * scale));
-    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    // 1. Maße günstig ermitteln (liest nur den Bild-Header)
+    img.src = url;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
+    });
+    const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    // 2. Bevorzugt browser-intern verkleinern (kein Vollbild im Canvas nötig)
+    let source = null;
+    if (typeof createImageBitmap === 'function') {
+      try {
+        bmp = await createImageBitmap(fileOrBlob, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+        source = bmp;
+      } catch { /* Resize-Optionen nicht unterstützt → <img>-Pfad */ }
+    }
+    if (!source) source = img;
+
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(source, 0, 0, w, h);
     const blob = await new Promise((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Bild konnte nicht verarbeitet werden'))), 'image/jpeg', quality));
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Canvas-Export fehlgeschlagen'))), 'image/jpeg', quality));
     return { blob };
   } finally {
     canvas.width = 0; canvas.height = 0; // Canvas-Speicher sofort freigeben (iOS!)
-    cleanup();
-  }
-}
-
-async function decodeImage(fileOrBlob) {
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bmp = await createImageBitmap(fileOrBlob);
-      return { source: bmp, width: bmp.width, height: bmp.height, cleanup: () => bmp.close?.() };
-    } catch { /* Fallback über <img> unten */ }
-  }
-  const url = URL.createObjectURL(fileOrBlob);
-  try {
-    const img = new Image();
-    img.decoding = 'async';
-    img.src = url;
-    if (img.decode) await img.decode();
-    else await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden')); });
-    return { source: img, width: img.naturalWidth, height: img.naturalHeight, cleanup: () => URL.revokeObjectURL(url) };
-  } catch (err) {
+    bmp?.close?.();
+    img.src = '';                        // dekodierte Bilddaten der <img> freigeben
     URL.revokeObjectURL(url);
-    throw err;
   }
 }
 
