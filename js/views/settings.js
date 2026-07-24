@@ -42,6 +42,12 @@ export async function renderSettings(container) {
     </div>
 
     <div class="card mb-2">
+      <div class="card-title">🏡 Unser Zuhause anlegen</div>
+      <p class="small muted">Legt eure komplette Raumstruktur leer an: <b>Wohnung</b> (Wohnzimmer, Garderobe, Kinderzimmer, Schlafzimmer, Studio, 2 Bäder) und <b>Haus nebenan</b> (EG, Obergeschoss mit Galerie, Keller, Dachboden). Danach nur noch durchfotografieren.</p>
+      <button class="btn btn-primary" id="do-family">🏡 Unsere Räume anlegen</button>
+    </div>
+
+    <div class="card mb-2">
       <div class="card-title">🧪 Ausprobieren</div>
       <p class="small muted">Beispieldaten mit zwei Häusern, Räumen und Gegenständen laden — ideal zum Kennenlernen.</p>
       <button class="btn" id="do-demo">Beispieldaten laden</button>
@@ -85,6 +91,17 @@ export async function renderSettings(container) {
     } catch (err) {
       toast(`⚠️ ${err.message}`, 4000);
     }
+  };
+
+  container.querySelector('#do-family').onclick = async () => {
+    const houses = await db.all('houses');
+    if (houses.some((h) => ['Wohnung', 'Haus nebenan'].includes(h.name))) {
+      if (!(await confirmSheet('Nochmal anlegen?', '„Wohnung“ oder „Haus nebenan“ existieren schon — die Struktur würde doppelt angelegt.', 'Trotzdem anlegen'))) return;
+    }
+    const { loadFamilyStructure } = await import('../data.js');
+    await loadFamilyStructure();
+    toast('Eure Räume sind angelegt 🏡 Jetzt durchfotografieren!');
+    location.hash = '#/browse';
   };
 
   container.querySelector('#do-demo').onclick = async () => {

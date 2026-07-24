@@ -22,7 +22,8 @@ async function listHouses(container) {
   const sections = houses.map((h) => {
     const hFloors = floors.filter((f) => f.houseId === h.id).sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
     const floorBlocks = hFloors.map((f) => {
-      const fRooms = rooms.filter((r) => r.floorId === f.id);
+      const fRooms = rooms.filter((r) => r.floorId === f.id)
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.id.localeCompare(b.id));
       const tiles = fRooms.map((r) => {
         const n = items.filter((it) => it.roomId === r.id).length;
         return `

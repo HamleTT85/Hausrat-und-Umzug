@@ -75,10 +75,10 @@ export async function renderDashboard(container) {
       <div class="empty card">
         <div class="empty-ico">🏠</div>
         <div class="empty-title">Noch ganz leer hier</div>
-        <p>Lege dein erstes Haus oder deine Wohnung an — oder lade Beispieldaten zum Ausprobieren.</p>
+        <p>Ein Tipp genügt: Wohnung + Haus nebenan mit allen Räumen anlegen — danach nur noch durchfotografieren.</p>
         <div class="stack">
-          <a class="btn btn-primary btn-block" href="#/browse">🏡 Erstes Zuhause anlegen</a>
-          <a class="btn btn-block" href="#/settings">🧪 Beispieldaten laden</a>
+          <button class="btn btn-primary btn-block" id="dash-family">🏡 Unsere Räume anlegen</button>
+          <a class="btn btn-block" href="#/browse">✍️ Lieber selbst anlegen</a>
         </div>
       </div>` : `
       <div class="row mb-2">
@@ -101,5 +101,11 @@ export async function renderDashboard(container) {
     a.addEventListener('click', () => {
       sessionStorage.setItem('searchCat', a.dataset.cat);
     });
+  });
+
+  container.querySelector('#dash-family')?.addEventListener('click', async () => {
+    const { loadFamilyStructure } = await import('../data.js');
+    await loadFamilyStructure();
+    location.hash = '#/browse';
   });
 }

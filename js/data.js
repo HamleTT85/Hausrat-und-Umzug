@@ -121,6 +121,67 @@ export function fmtEuro(v) {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
 }
 
+// ---------- Starter-Struktur: Wohnung + Haus nebenan (Pascal & Nadine) ----------
+export async function loadFamilyStructure() {
+  const mkHouse = async (name, icon) => {
+    const h = { id: uid('house'), name, icon };
+    await db.put('houses', h);
+    return h;
+  };
+  const mkFloor = async (houseId, name, level) => {
+    const f = { id: uid('floor'), houseId, name, level };
+    await db.put('floors', f);
+    return f;
+  };
+  const mkRooms = async (house, floor, rooms) => {
+    let i = 0;
+    for (const [name, icon] of rooms) {
+      await db.put('rooms', { id: uid('room'), houseId: house.id, floorId: floor.id, name, icon, order: i++ });
+    }
+  };
+
+  // Wohnung — alles auf einer Ebene
+  const wohnung = await mkHouse('Wohnung', '🏢');
+  const wEbene = await mkFloor(wohnung.id, 'Wohnebene', 0);
+  await mkRooms(wohnung, wEbene, [
+    ['Wohnzimmer', '🛋️'],
+    ['Garderobe', '🚪'],
+    ['Kinderzimmer', '🧸'],
+    ['Schlafzimmer', '🛏️'],
+    ['Studio', '🖥️'],
+    ['Badezimmer 1', '🛁'],
+    ['Badezimmer 2', '🛁'],
+  ]);
+
+  // Haus nebenan — EG, OG (Galerie), Keller, Dachboden
+  const haus = await mkHouse('Haus nebenan', '🏡');
+  const eg = await mkFloor(haus.id, 'Erdgeschoss', 0);
+  await mkRooms(haus, eg, [
+    ['Neues Schlafzimmer', '🛏️'],
+    ['Küche', '🍳'],
+    ['Garderobe', '🚪'],
+    ['Esszimmer', '🍷'],
+    ['Wohnzimmer', '🛋️'],
+    ['Abstellkammer', '📦'],
+    ['Badezimmer unten', '🛁'],
+  ]);
+  const og = await mkFloor(haus.id, 'Obergeschoss', 1);
+  await mkRooms(haus, og, [
+    ['Galerie', '🖼️'],
+    ['Altes Schlafzimmer', '🛏️'],
+    ['Büro', '🖥️'],
+    ['Badezimmer oben', '🛁'],
+  ]);
+  const keller = await mkFloor(haus.id, 'Keller', -1);
+  await mkRooms(haus, keller, [['Keller', '📦']]);
+  const dach = await mkFloor(haus.id, 'Dachboden', 2);
+  await mkRooms(haus, dach, [['Dachboden', '🧰']]);
+
+  // Umzugsplan-Grundlagen sicherstellen (Fahrten + Personen)
+  const plan = await getMovePlan();
+  await setMeta('movePlan', plan);
+}
+
 // ---------- Demo-Daten ----------
 export async function loadDemoData() {
   const h1 = { id: uid('house'), name: 'Wohnung', icon: '🏢' };
