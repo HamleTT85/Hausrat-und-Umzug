@@ -15,7 +15,7 @@ const ITEM_SCHEMA = {
         type: 'object',
         properties: {
           name:       { type: 'string', description: 'Kurzer, prägnanter Name des Gegenstands auf Deutsch' },
-          category:   { type: 'string', enum: ['sofa_sessel','tische','stuehle','schraenke','betten','lampen','elektro','kueche','deko','textilien','buecher_medien','werkzeug','sport_freizeit','sonstiges'] },
+          category:   { type: 'string', enum: ['sofa_sessel','tische','stuehle','schraenke','betten','lampen','elektro','kueche','deko','textilien','buecher_medien','werkzeug','sport_freizeit','spielzeug','sonstiges'] },
           condition:  { type: 'string', enum: ['neuwertig','sehr_gut','gut','gebraucht','abgenutzt','defekt'] },
           age_years:  { type: ['integer','null'], description: 'Geschätztes Alter in Jahren, null wenn nicht einschätzbar' },
           material:   { type: 'string', description: 'Hauptmaterialien, z.B. "Eiche massiv, Metall"' },

@@ -10,6 +10,7 @@ import { renderSearch } from './views/search.js';
 import { renderMove } from './views/move.js';
 import { renderSell } from './views/sell.js';
 import { renderDuplicates } from './views/duplicates.js';
+import { renderDecide } from './views/decide.js';
 import { renderSettings } from './views/settings.js';
 import { renderScan } from './views/scan.js';
 
@@ -22,6 +23,7 @@ const routes = [
   { pattern: /^#\/move$/,              view: renderMove,      nav: 'move' },
   { pattern: /^#\/sell$/,              view: renderSell,      nav: 'move' },
   { pattern: /^#\/duplicates$/,        view: renderDuplicates, nav: 'move' },
+  { pattern: /^#\/decide$/,            view: renderDecide,    nav: 'move' },
   { pattern: /^#\/settings$/,          view: renderSettings,  nav: null },
   { pattern: /^#\/scan$/,              view: renderScan,      nav: null },
 ];

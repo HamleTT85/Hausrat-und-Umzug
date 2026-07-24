@@ -65,6 +65,14 @@ export async function renderMove(container) {
       </div>
     </a>
 
+    <a class="card card-link mb-2" href="#/decide">
+      <div class="row-between">
+        <div><div class="card-title" style="margin:0">🤝 Gemeinsam entscheiden</div>
+        <div class="small muted">Deko, Spielzeug & Co.: Ihr stimmt beide ab — Einigkeit wird übernommen, Uneinigkeit landet in der Klärungsliste.</div></div>
+        <span class="nav-row-chev">›</span>
+      </div>
+    </a>
+
     <div class="card mb-2">
       <div class="card-title">📦 Transport-Fortschritt</div>
       ${moving.length ? `

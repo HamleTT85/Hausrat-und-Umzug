@@ -1,6 +1,6 @@
 // Startseite: Überblick, Statistiken, Schnellzugriffe.
 import { db, getMeta } from '../db.js';
-import { STATUSES, fmtEuro } from '../data.js';
+import { STATUSES, CATEGORIES, fmtEuro } from '../data.js';
 import { esc, renderItemCard, statusChip } from '../ui.js';
 
 export async function renderDashboard(container) {
@@ -11,6 +11,8 @@ export async function renderDashboard(container) {
   const totalValue = items.reduce((s, it) => s + (Number(it.value) || 0), 0);
   const byStatus = {};
   for (const it of items) byStatus[it.status] = (byStatus[it.status] || 0) + 1;
+  const byCat = {};
+  for (const it of items) byCat[it.category] = (byCat[it.category] || 0) + 1;
 
   const undecided = byStatus.unentschieden || 0;
   const sellValue = items.filter((i) => i.status === 'verkaufen').reduce((s, it) => s + (Number(it.value) || 0), 0);
@@ -56,6 +58,19 @@ export async function renderDashboard(container) {
       </div>
     </div>` : ''}
 
+    ${items.length ? `
+    <div class="card mb-2">
+      <div class="card-title">🗂️ Kategorien</div>
+      <div class="chip-row">
+        ${Object.entries(byCat)
+          .sort((a, b) => b[1] - a[1])
+          .map(([c, n]) => {
+            const cat = CATEGORIES[c] || CATEGORIES.sonstiges;
+            return `<a class="chip" href="#/search" data-cat="${esc(c)}">${cat.icon} ${cat.label} <b class="small">${n}</b></a>`;
+          }).join('')}
+      </div>
+    </div>` : ''}
+
     ${!houses.length ? `
       <div class="empty card">
         <div class="empty-ico">🏠</div>
@@ -76,10 +91,15 @@ export async function renderDashboard(container) {
       <div class="item-grid">${recentCards.join('')}</div>` : ''}
   `;
 
-  // Status-Chips auf der Startseite führen zur vorgefilterten Suche
+  // Status-/Kategorie-Chips führen zur vorgefilterten Suche
   container.querySelectorAll('[data-status]').forEach((a) => {
     a.addEventListener('click', () => {
       sessionStorage.setItem('searchStatus', a.dataset.status);
+    });
+  });
+  container.querySelectorAll('[data-cat]').forEach((a) => {
+    a.addEventListener('click', () => {
+      sessionStorage.setItem('searchCat', a.dataset.cat);
     });
   });
 }

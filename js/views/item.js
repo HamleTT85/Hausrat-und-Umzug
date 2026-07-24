@@ -155,7 +155,11 @@ export async function renderItem(container, itemId) {
       material: f.material.value.trim(),
       value: f.value.value === '' ? null : Number(f.value.value),
       notes: f.notes.value.trim(),
-      status, priority, transport, destination,
+      status, priority, transport,
+      // Müll-Komfort: neu auf „Entsorgen“ gestellt (oder ohne Ziel) → Werkstoffhof-Fahrt
+      destination: status === 'entsorgen' && (item.status !== 'entsorgen' || !destination)
+        ? (plan.destinations.find((d) => d.id === 'werkstoffhof')?.id || destination)
+        : destination,
       sale: {
         price: container.querySelector('#sale-price') ? numOrNull(container.querySelector('#sale-price').value) : item.sale?.price ?? null,
         description: container.querySelector('#sale-desc')?.value ?? item.sale?.description ?? '',

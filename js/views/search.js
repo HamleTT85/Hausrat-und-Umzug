@@ -12,11 +12,12 @@ export async function renderSearch(container) {
   const state = {
     q: '',
     status: sessionStorage.getItem('searchStatus') || '',
-    category: '',
+    category: sessionStorage.getItem('searchCat') || '',
     priority: '',
     house: '',
   };
   sessionStorage.removeItem('searchStatus');
+  sessionStorage.removeItem('searchCat');
 
   container.innerHTML = `
     <h1 class="page-title">🔍 <em>Suchen</em> & filtern</h1>
@@ -49,6 +50,7 @@ export async function renderSearch(container) {
   `;
 
   if (state.status) container.querySelector('#s-status').value = state.status;
+  if (state.category) container.querySelector('#s-cat').value = state.category;
 
   const results = container.querySelector('#s-results');
 

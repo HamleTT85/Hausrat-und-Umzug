@@ -15,6 +15,7 @@ export const CATEGORIES = {
   buecher_medien: { label: 'Bücher & Medien',    icon: '📚' },
   werkzeug:       { label: 'Werkzeug & Garten',  icon: '🛠️' },
   sport_freizeit: { label: 'Sport & Freizeit',   icon: '🚲' },
+  spielzeug:      { label: 'Kinder & Spielzeug', icon: '🧸' },
   sonstiges:      { label: 'Sonstiges',          icon: '📦' },
 };
 
@@ -59,7 +60,7 @@ export const DEFAULT_DESTINATIONS = [
   { id: 'werkstoffhof', icon: '♻️', name: 'Werkstoffhof / Spende' },
 ];
 
-/** Umzugsplan mit garantierten Defaults (inkl. Fahrten-Liste) laden. */
+/** Umzugsplan mit garantierten Defaults (inkl. Fahrten- und Personen-Liste) laden. */
 export async function getMovePlan() {
   const saved = (await getMeta('movePlan')) || {};
   const plan = {
@@ -69,8 +70,19 @@ export async function getMovePlan() {
   if (!Array.isArray(plan.destinations) || !plan.destinations.length) {
     plan.destinations = DEFAULT_DESTINATIONS.map((d) => ({ ...d }));
   }
+  if (!Array.isArray(plan.people) || plan.people.length < 2) {
+    plan.people = ['Ich', 'Partnerin'];
+  }
   return plan;
 }
+
+// „Gemeinsam entscheiden“: mögliche Wünsche pro Person und was bei Einigkeit passiert.
+export const WISH_CHOICES = {
+  hier:     { label: 'Hier im Haus', icon: '🏡', apply: { status: 'umziehen',  destination: 'nebenan' } },
+  muenchen: { label: 'Nach München', icon: '🚗', apply: { status: 'umziehen',  destination: 'muenchen' } },
+  weg:      { label: 'Weg damit',    icon: '🗑️', apply: { status: 'entsorgen', destination: 'werkstoffhof' } },
+  egal:     { label: 'Mir egal',     icon: '🤷', apply: null },
+};
 
 export const ROOM_ICONS =['🛋️','🍳','🛏️','🛁','🚪','🧺','🖥️','🧸','📚','🌿','🚗','🍷','🧰','📦'];
 export const HOUSE_ICONS = ['🏠','🏡','🏢','🏚️','🏰','🛖'];
