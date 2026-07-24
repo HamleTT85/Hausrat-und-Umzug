@@ -1,5 +1,5 @@
 // App-Einstieg: Hash-Router, Theme, Navigation, Hero-Shot.
-import { closeSheet, toast, savePhotoForItem, bumpPhotoGeneration } from './ui.js';
+import { closeSheet, toast, savePhotoForItem, bumpPhotoGeneration, reportPhotoError } from './ui.js';
 import { getMeta, setMeta } from './db.js';
 
 import { renderDashboard } from './views/dashboard.js';
@@ -102,7 +102,7 @@ function initHeroShot() {
       toast('Neues Titelfoto gespeichert 📸');
       route(); // aktuelle Ansicht mit dem neuen Bild neu aufbauen
     } catch (err) {
-      toast(`⚠️ ${err.message}`, 5000);
+      await reportPhotoError(err);
     }
   };
 }

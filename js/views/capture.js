@@ -2,7 +2,7 @@
 // auswählen & übernehmen. Unterstützt einzelne Fotos und ganze Bilderserien.
 import { db, uid } from '../db.js';
 import { CATEGORIES, CONDITIONS, newItem, fmtEuro } from '../data.js';
-import { esc, toast, downscaleImage, blobToBase64 } from '../ui.js';
+import { esc, toast, downscaleImage, blobToBase64, reportPhotoError } from '../ui.js';
 import { analyzePhoto, getAiSettings, CAPTURE_MODES } from '../ai.js';
 
 export async function renderCapture(container, query = '') {
@@ -97,15 +97,20 @@ export async function renderCapture(container, query = '') {
   async function processFiles(files) {
     // 1. Alle Bilder verkleinern (Vorschau als Object-URL — spart viel Speicher)
     const shots = [];
+    let firstError = null;
     for (const file of files) {
       try {
         const { blob } = await downscaleImage(file);
         shots.push({ blob, url: URL.createObjectURL(blob) });
       } catch (err) {
-        toast(`⚠️ Ein Bild konnte nicht gelesen werden${err?.message ? `: ${err.message}` : ''}`, 4000);
+        firstError = firstError || err;
       }
     }
-    if (!shots.length) return;
+    if (!shots.length) {
+      stage.innerHTML = '';
+      if (firstError) await reportPhotoError(firstError);
+      return;
+    }
 
     // 2. Nacheinander analysieren, mit Fortschritt
     const focus = container.querySelector('#cap-focus')?.value;
@@ -196,7 +201,7 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
         const selected = (sh.found || []).filter((_, fi) => stage.querySelector(`[data-check="${si}:${fi}"]`)?.checked);
         if (!selected.length) continue;
 
-        const thumb = (await downscaleImage(sh.blob, 640, 0.72)).blob;
+        const thumb = (await downscaleImage(sh.blob, 512, 0.7)).blob;
         const photo = { id: uid('ph'), itemId: null, blob: sh.blob, thumb, createdAt: new Date().toISOString() };
         await db.put('photos', photo);
 
@@ -233,7 +238,7 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
   stage.querySelector('#cap-manual')?.addEventListener('click', async () => {
     const roomId = getRoomId();
     try {
-      const thumb = (await downscaleImage(shots[0].blob, 640, 0.72)).blob;
+      const thumb = (await downscaleImage(shots[0].blob, 512, 0.7)).blob;
       const photo = { id: uid('ph'), itemId: null, blob: shots[0].blob, thumb, createdAt: new Date().toISOString() };
       await db.put('photos', photo);
       const it = newItem(roomId, { name: '', photoIds: [photo.id] });

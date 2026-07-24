@@ -97,7 +97,7 @@ export function photoUrl(photoId) {
     let blob = p.thumb;
     if (!blob) {
       try {
-        blob = (await downscaleImage(p.blob, 640, 0.72)).blob;
+        blob = (await downscaleImage(p.blob, 512, 0.7)).blob;
         await db.put('photos', { ...p, thumb: blob });
       } catch {
         blob = p.blob; // Notfall: dann eben das Original
@@ -151,7 +151,7 @@ export async function savePhotoForItem(itemId, fileOrBlob, { asCover = false } =
   const item = await db.get('items', itemId);
   if (!item) throw new Error('Gegenstand nicht gefunden');
   const { blob } = await downscaleImage(fileOrBlob);
-  const thumb = (await downscaleImage(blob, 640, 0.72)).blob;
+  const thumb = (await downscaleImage(blob, 512, 0.7)).blob;
   const photo = { id: uid('ph'), itemId, blob, thumb, createdAt: new Date().toISOString() };
   await db.put('photos', photo);
   const photoIds = asCover ? [photo.id, ...(item.photoIds || [])] : [...(item.photoIds || []), photo.id];
@@ -176,7 +176,7 @@ function getCanvas() {
   return sharedCanvas;
 }
 
-export function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
+export function downscaleImage(fileOrBlob, maxEdge = 1280, quality = 0.85) {
   const task = imageQueue.then(async () => {
     try {
       return await attemptDownscale(fileOrBlob, maxEdge, quality);
@@ -194,30 +194,40 @@ export function downscaleImage(fileOrBlob, maxEdge = 1568, quality = 0.85) {
 }
 
 async function attemptDownscale(fileOrBlob, maxEdge, quality) {
-  const url = URL.createObjectURL(fileOrBlob);
-  const img = new Image();
   const canvas = getCanvas();
-  let bmp = null;
+  let bmp = null, img = null, url = null;
   try {
-    // 1. Maße günstig ermitteln (liest nur den Bild-Header)
-    img.src = url;
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
-    });
-    const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    let source = null, w, h;
 
-    // 2. Bevorzugt browser-intern verkleinern (kein Vollbild im Canvas nötig)
-    let source = null;
-    if (typeof createImageBitmap === 'function') {
+    // BESTER PFAD (spart auf iOS am meisten Speicher): Maße aus dem
+    // Datei-Header lesen OHNE das Bild zu dekodieren, dann den Browser
+    // direkt in Zielgröße dekodieren lassen. Ein 12–48-MP-Kamerabild wird
+    // so NIE in voller Auflösung entpackt (das war der Speicher-Killer).
+    const size = await readImageSize(fileOrBlob).catch(() => null);
+    if (size && typeof createImageBitmap === 'function') {
+      const scale = Math.min(1, maxEdge / Math.max(size.w, size.h));
+      w = Math.max(1, Math.round(size.w * scale));
+      h = Math.max(1, Math.round(size.h * scale));
       try {
         bmp = await createImageBitmap(fileOrBlob, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
         source = bmp;
-      } catch { /* Resize-Optionen nicht unterstützt → <img>-Pfad */ }
+      } catch { bmp = null; } // Resize-Option nicht unterstützt → Fallback
     }
-    if (!source) source = img;
+
+    // FALLBACK: klassisch über <img> dekodieren (nur wenn nötig)
+    if (!source) {
+      url = URL.createObjectURL(fileOrBlob);
+      img = new Image();
+      img.src = url;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
+      });
+      const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+      w = Math.max(1, Math.round(img.naturalWidth * scale));
+      h = Math.max(1, Math.round(img.naturalHeight * scale));
+      source = img;
+    }
 
     canvas.width = w; canvas.height = h;
     canvas.getContext('2d').drawImage(source, 0, 0, w, h);
@@ -227,15 +237,88 @@ async function attemptDownscale(fileOrBlob, maxEdge, quality) {
   } finally {
     canvas.width = 0; canvas.height = 0; // Canvas-Speicher sofort freigeben (iOS!)
     bmp?.close?.();
-    img.src = '';                        // dekodierte Bilddaten der <img> freigeben
-    URL.revokeObjectURL(url);
+    if (img) img.src = '';               // dekodierte <img>-Daten freigeben
+    if (url) URL.revokeObjectURL(url);
   }
+}
+
+// Bildmaße aus dem Datei-Header lesen (JPEG/PNG) — ohne Pixel zu dekodieren.
+async function readImageSize(blob) {
+  const buf = new Uint8Array(await blob.slice(0, 512 * 1024).arrayBuffer());
+  // PNG
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+    const w = (buf[16] << 24) | (buf[17] << 16) | (buf[18] << 8) | buf[19];
+    const h = (buf[20] << 24) | (buf[21] << 16) | (buf[22] << 8) | buf[23];
+    if (w > 0 && h > 0) return { w, h };
+  }
+  // JPEG: SOF-Marker suchen (enthält Höhe & Breite)
+  if (buf[0] === 0xFF && buf[1] === 0xD8) {
+    let o = 2;
+    while (o + 9 < buf.length) {
+      if (buf[o] !== 0xFF) { o++; continue; }
+      const marker = buf[o + 1];
+      if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+        const h = (buf[o + 5] << 8) | buf[o + 6];
+        const w = (buf[o + 7] << 8) | buf[o + 8];
+        if (w > 0 && h > 0) return { w, h };
+        break;
+      }
+      if (marker === 0xD8 || marker === 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) { o += 2; continue; }
+      const len = (buf[o + 2] << 8) | buf[o + 3];
+      if (len < 2) break;
+      o += 2 + len;
+    }
+  }
+  return null; // z.B. HEIC → Fallback-Pfad dekodiert klassisch
 }
 
 /** Blob → reines Base64 (ohne data:-Präfix), z.B. für die KI-Analyse. */
 export async function blobToBase64(blob) {
   const { blobToDataUrl } = await import('./db.js');
   return (await blobToDataUrl(blob)).split(',')[1];
+}
+
+// ---------- Speicher-Diagnose ----------
+export async function storageReport() {
+  const L = [];
+  try {
+    const est = await navigator.storage?.estimate?.();
+    if (est?.quota) L.push(`Belegt: ${(est.usage / 1048576).toFixed(1)} MB von ${Math.round(est.quota / 1048576).toLocaleString('de-DE')} MB`);
+    else L.push('Speicher-Schätzung: von diesem Browser nicht verfügbar');
+  } catch { L.push('Speicher-Schätzung: Fehler'); }
+  try { L.push(`Dauerhaft geschützt: ${(await navigator.storage?.persisted?.()) ? 'ja' : 'nein'}`); } catch { /* egal */ }
+  try {
+    const photos = await db.all('photos');
+    const full = photos.reduce((s, p) => s + (p.blob?.size || 0), 0);
+    const th = photos.reduce((s, p) => s + (p.thumb?.size || 0), 0);
+    const items = await db.all('items');
+    L.push(`Gegenstände: ${items.length} · Fotos: ${photos.length}`);
+    L.push(`Fotos gespeichert: ${(full / 1048576).toFixed(1)} MB + Thumbs ${(th / 1048576).toFixed(1)} MB`);
+    L.push(`Ohne Thumbnail: ${photos.filter((p) => !p.thumb).length}`);
+  } catch { L.push('Foto-Zählung: Fehler'); }
+  if (performance?.memory) L.push(`JS-Speicher: ${Math.round(performance.memory.usedJSHeapSize / 1048576)} MB von ${Math.round(performance.memory.jsHeapSizeLimit / 1048576)} MB`);
+  L.push(`Anzeige: ${screen?.width || '?'}×${screen?.height || '?'} @${devicePixelRatio || 1}x`);
+  L.push(`Browser: ${navigator.userAgent}`);
+  return L.join('\n');
+}
+
+/** Fehler bei Foto-Operationen sichtbar melden — mit Details zum Kopieren. */
+export async function reportPhotoError(err) {
+  const detail = `Fehler: ${err?.name || 'Error'}: ${err?.message || err}\n${await storageReport()}`;
+  const box = sheet(`
+    <h3>⚠️ Foto konnte nicht gespeichert werden</h3>
+    <p class="small muted">Damit ich das beheben kann, kopiere bitte diese Infos und schick sie mir:</p>
+    <pre class="input" style="white-space:pre-wrap; word-break:break-word; font-size:.78rem; max-height:38dvh; overflow:auto">${esc(detail)}</pre>
+    <div class="row mt-2">
+      <button class="btn grow" id="pe-copy">📋 Infos kopieren</button>
+      <button class="btn btn-primary grow" id="pe-reload">🔄 App neu laden</button>
+    </div>`);
+  box.querySelector('#pe-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(detail); toast('Kopiert 📋 — bitte an den Support schicken'); }
+    catch { toast('Bitte den Text oben markieren und kopieren'); }
+  };
+  box.querySelector('#pe-reload').onclick = () => location.reload();
+  return detail;
 }
 
 export function debounce(fn, ms = 250) {

@@ -1,7 +1,7 @@
 // Einstellungen: KI-Zugang, Datensicherung, Demo-Daten.
 import { db, getMeta, setMeta, exportAll, importAll } from '../db.js';
 import { loadDemoData } from '../data.js';
-import { esc, toast, confirmSheet } from '../ui.js';
+import { esc, toast, confirmSheet, storageReport } from '../ui.js';
 import { DEFAULT_MODEL } from '../ai.js';
 
 const MODELS = [
@@ -56,6 +56,7 @@ export async function renderSettings(container) {
     <div class="card mb-2">
       <div class="card-title">📊 Speicher</div>
       <p class="small muted" id="storage-info">Wird ermittelt …</p>
+      <button class="btn btn-s mt-1" id="storage-diag">🩺 Diagnose kopieren</button>
     </div>
 
     <div class="card mb-2">
@@ -84,6 +85,15 @@ export async function renderSettings(container) {
       info.textContent = 'Keine Angabe von diesem Browser verfügbar.';
     }
   })();
+
+  container.querySelector('#storage-diag').onclick = async () => {
+    const report = await storageReport();
+    try { await navigator.clipboard.writeText(report); toast('Diagnose kopiert 📋'); }
+    catch { toast('Diagnose: bitte manuell notieren'); }
+    // Zusätzlich anzeigen, damit man es ablesen/screenshotten kann
+    const { sheet } = await import('../ui.js');
+    sheet(`<h3>🩺 Speicher-Diagnose</h3><pre class="input" style="white-space:pre-wrap;word-break:break-word;font-size:.78rem;max-height:50dvh;overflow:auto">${esc(report)}</pre>`);
+  };
 
   container.querySelector('#save-ai').onclick = async () => {
     await setMeta('apiKey', container.querySelector('#set-key').value.trim());

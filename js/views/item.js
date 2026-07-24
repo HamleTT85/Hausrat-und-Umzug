@@ -1,7 +1,7 @@
 // Detailseite: Fotogalerie, alle Eigenschaften, Status, QR-Code, Verkauf.
 import { db, uid, deleteItemDeep, getMeta } from '../db.js';
 import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMovePlan } from '../data.js';
-import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon } from '../ui.js';
+import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon, reportPhotoError } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
 
@@ -200,7 +200,7 @@ export async function renderItem(container, itemId) {
       toast('Foto hinzugefügt 📷');
       renderItem(container, itemId);
     } catch (err) {
-      toast(`⚠️ Foto konnte nicht gespeichert werden: ${err.message}`, 5000);
+      await reportPhotoError(err);
     }
   };
 
