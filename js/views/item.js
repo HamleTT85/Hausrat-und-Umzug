@@ -1,7 +1,7 @@
 // Detailseite: Fotogalerie, alle Eigenschaften, Status, QR-Code, Verkauf.
 import { db, uid, deleteItemDeep, getMeta } from '../db.js';
 import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMovePlan } from '../data.js';
-import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon, reportPhotoError } from '../ui.js';
+import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon, reportPhotoError, itemThumb } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
 
@@ -76,7 +76,11 @@ export async function renderItem(container, itemId) {
         <div class="field"><label>Alter (Jahre)</label>
           <input class="input" name="ageYears" type="number" min="0" value="${item.ageYears ?? ''}"></div>
         <div class="field"><label>Anzahl</label>
-          <input class="input" name="quantity" type="number" min="1" value="${item.quantity ?? 1}"></div>
+          <div class="stepper">
+            <button type="button" class="stepper-btn" id="qty-minus" aria-label="Weniger">−</button>
+            <input class="input stepper-input" name="quantity" type="number" min="1" inputmode="numeric" value="${item.quantity ?? 1}">
+            <button type="button" class="stepper-btn" id="qty-plus" aria-label="Mehr">+</button>
+          </div></div>
         <div class="field"><label>Material</label>
           <input class="input" name="material" value="${esc(item.material)}" placeholder="z.B. Eiche, Metall"></div>
         <div class="field"><label>Wert (€, geschätzt)</label>
@@ -110,6 +114,12 @@ export async function renderItem(container, itemId) {
       </div>
       <p class="small faint mt-1" style="margin-bottom:0">Für Kleinanzeigen: Text kopieren, Fotos teilen (oder herunterladen) — fertig ist die Anzeige.</p>
     </div>` : ''}
+
+    <div class="card mb-2">
+      <div class="card-title">🔀 Zusammenführen</div>
+      <p class="small muted">Gehört woanders noch etwas zum selben Ding (z.B. weitere Teller)? Führe andere Einträge hier hinein — deren Fotos und Anzahl kommen dazu, Name & Beschreibung von <b>diesem</b> Eintrag bleiben.</p>
+      <button class="btn btn-block" id="item-merge">🔀 Einträge hierher zusammenführen</button>
+    </div>
 
     <div class="card mb-2">
       <div class="card-title">🔖 QR-Etikett</div>
@@ -147,6 +157,17 @@ export async function renderItem(container, itemId) {
     destination = c.dataset.dest;
     container.querySelectorAll('[data-dest]').forEach((x) => x.classList.toggle('selected', x === c));
   });
+
+  // Anzahl-Stepper (−/+)
+  const qtyInput = container.querySelector('[name="quantity"]');
+  const stepQty = (delta) => {
+    qtyInput.value = Math.max(1, (Number(qtyInput.value) || 1) + delta);
+  };
+  container.querySelector('#qty-minus').onclick = () => stepQty(-1);
+  container.querySelector('#qty-plus').onclick = () => stepQty(1);
+
+  // Zusammenführen
+  container.querySelector('#item-merge').onclick = () => openMergeSheet(container, item, itemId, () => save(true));
 
   async function save(silent = false) {
     const f = container.querySelector('#item-form');
@@ -305,4 +326,78 @@ export async function renderItem(container, itemId) {
 
 function numOrNull(v) {
   return v === '' || v == null ? null : Number(v);
+}
+
+/**
+ * Merge-Dialog: andere Einträge auswählen und in das aktuelle Objekt
+ * zusammenführen. Fotos + Anzahl der Quellen wandern hierher, Name &
+ * Beschreibung dieses Zielobjekts bleiben; die Quellen werden gelöscht.
+ */
+async function openMergeSheet(container, currentItem, itemId, saveCurrent) {
+  // Zuerst den aktuellen Bearbeitungsstand sichern (Name/Anzahl etc.)
+  const target = await saveCurrent();
+
+  const all = await db.all('items');
+  const rooms = await db.all('rooms');
+  const roomById = Object.fromEntries(rooms.map((r) => [r.id, r]));
+  const candidates = all
+    .filter((it) => it.id !== target.id)
+    .sort((a, b) => (a.category === target.category ? -1 : 1) - (b.category === target.category ? -1 : 1));
+
+  if (!candidates.length) {
+    toast('Es gibt keine anderen Einträge zum Zusammenführen');
+    return;
+  }
+
+  const rows = await Promise.all(candidates.map(async (it) => {
+    const thumb = await itemThumb(it);
+    const room = roomById[it.roomId];
+    return `
+      <label class="nav-row" style="cursor:pointer">
+        <input type="checkbox" data-merge="${it.id}" style="width:20px;height:20px;accent-color:var(--accent);flex-shrink:0">
+        <div class="nav-row-ico" style="overflow:hidden;padding:0">${thumb}</div>
+        <div class="grow">
+          <div class="nav-row-title ellipsis">${esc(it.name || 'Ohne Namen')}${it.quantity > 1 ? ` <span class="chip status-mini">×${it.quantity}</span>` : ''}</div>
+          <div class="nav-row-sub">${(CATEGORIES[it.category] || CATEGORIES.sonstiges).icon} ${room ? esc(room.name) : ''} · ${it.photoIds?.length || 0} Fotos</div>
+        </div>
+      </label>`;
+  }));
+
+  const box = sheet(`
+    <h3>🔀 Hierher zusammenführen</h3>
+    <p class="small muted">Alles Ausgewählte wird in <b>„${esc(target.name || 'diesen Eintrag')}“</b> übernommen: Fotos werden gesammelt, die Anzahl addiert. Die ausgewählten Einträge werden danach gelöscht.</p>
+    <div class="stack" style="max-height:46dvh;overflow:auto;margin-bottom:12px">${rows.join('')}</div>
+    <div class="row">
+      <button class="btn grow" id="mg-cancel">Abbrechen</button>
+      <button class="btn btn-primary grow" id="mg-ok">Zusammenführen</button>
+    </div>`);
+
+  box.querySelector('#mg-cancel').onclick = closeSheet;
+  box.querySelector('#mg-ok').onclick = async () => {
+    const ids = [...box.querySelectorAll('[data-merge]:checked')].map((c) => c.dataset.merge);
+    if (!ids.length) return toast('Nichts ausgewählt');
+
+    const fresh = await db.get('items', target.id);
+    let photoIds = [...(fresh.photoIds || [])];
+    let quantity = fresh.quantity || 1;
+
+    for (const sid of ids) {
+      const src = await db.get('items', sid);
+      if (!src) continue;
+      // Fotos übernehmen (umhängen auf das Zielobjekt)
+      for (const pid of src.photoIds || []) {
+        const p = await db.get('photos', pid);
+        if (p) await db.put('photos', { ...p, itemId: target.id });
+        if (!photoIds.includes(pid)) photoIds.push(pid);
+      }
+      quantity += src.quantity || 1;
+      // Quell-Objekt löschen (Fotos NICHT mitlöschen — die gehören jetzt zum Ziel)
+      await db.del('items', sid);
+    }
+
+    await db.put('items', { ...fresh, photoIds, quantity, updatedAt: new Date().toISOString() });
+    closeSheet();
+    toast(`${ids.length} ${ids.length === 1 ? 'Eintrag' : 'Einträge'} zusammengeführt 🔀`);
+    renderItem(container, itemId);
+  };
 }

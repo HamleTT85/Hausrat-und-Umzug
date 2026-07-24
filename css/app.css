@@ -433,3 +433,15 @@ textarea.input { resize: vertical; min-height: 76px; }
   transition: transform .12s ease;
 }
 .hero-btn:active { transform: scale(.9); }
+
+/* ---------- Anzahl-Stepper (−/+) ---------- */
+.stepper { display: flex; align-items: stretch; gap: 6px; }
+.stepper-btn {
+  width: 44px; flex-shrink: 0;
+  border: 1.5px solid var(--border); background: var(--surface);
+  border-radius: var(--radius-s); font-size: 1.3rem; font-weight: 700;
+  color: var(--text); line-height: 1;
+  transition: transform .12s ease, background .15s;
+}
+.stepper-btn:active { transform: scale(.9); background: var(--surface-2); }
+.stepper-input { text-align: center; flex: 1; min-width: 0; }
