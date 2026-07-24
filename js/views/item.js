@@ -1,6 +1,6 @@
 // Detailseite: Fotogalerie, alle Eigenschaften, Status, QR-Code, Verkauf.
 import { db, uid, deleteItemDeep, getMeta } from '../db.js';
-import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro } from '../data.js';
+import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMovePlan } from '../data.js';
 import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, downscaleImage, catIcon } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
@@ -11,6 +11,7 @@ export async function renderItem(container, itemId) {
     container.innerHTML = '<div class="empty"><div class="empty-ico">🕳️</div><div class="empty-title">Gegenstand nicht gefunden</div></div>';
     return;
   }
+  const plan = await getMovePlan();
   const room = await db.get('rooms', item.roomId);
   const floor = room ? await db.get('floors', room.floorId) : null;
   const house = room ? await db.get('houses', room.houseId) : null;
@@ -52,6 +53,14 @@ export async function renderItem(container, itemId) {
         <div class="chip-row" id="prio-chips">
           ${Object.entries(PRIORITIES).map(([k, p]) =>
             `<button type="button" class="chip chip-select ${item.priority === k ? 'selected' : ''}" data-prio="${k}">${p.icon} ${p.label}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="field"><label>Ziel / Fahrt — wohin damit?</label>
+        <div class="chip-row" id="dest-chips">
+          <button type="button" class="chip chip-select ${!item.destination ? 'selected' : ''}" data-dest="">🤷 Offen</button>
+          ${plan.destinations.map((d) =>
+            `<button type="button" class="chip chip-select ${item.destination === d.id ? 'selected' : ''}" data-dest="${esc(d.id)}">${esc(d.icon)} ${esc(d.name)}</button>`).join('')}
         </div>
       </div>
 
@@ -115,6 +124,7 @@ export async function renderItem(container, itemId) {
   let status = item.status;
   let priority = item.priority;
   let transport = item.transport || 'offen';
+  let destination = item.destination || '';
 
   container.querySelectorAll('[data-status]').forEach((c) => c.onclick = () => {
     status = c.dataset.status;
@@ -127,6 +137,10 @@ export async function renderItem(container, itemId) {
   container.querySelectorAll('[data-transport]').forEach((c) => c.onclick = () => {
     transport = c.dataset.transport;
     container.querySelectorAll('[data-transport]').forEach((x) => x.classList.toggle('active', x === c));
+  });
+  container.querySelectorAll('[data-dest]').forEach((c) => c.onclick = () => {
+    destination = c.dataset.dest;
+    container.querySelectorAll('[data-dest]').forEach((x) => x.classList.toggle('selected', x === c));
   });
 
   async function save(silent = false) {
@@ -141,7 +155,7 @@ export async function renderItem(container, itemId) {
       material: f.material.value.trim(),
       value: f.value.value === '' ? null : Number(f.value.value),
       notes: f.notes.value.trim(),
-      status, priority, transport,
+      status, priority, transport, destination,
       sale: {
         price: container.querySelector('#sale-price') ? numOrNull(container.querySelector('#sale-price').value) : item.sale?.price ?? null,
         description: container.querySelector('#sale-desc')?.value ?? item.sale?.description ?? '',

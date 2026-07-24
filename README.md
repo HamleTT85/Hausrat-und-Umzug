@@ -10,7 +10,9 @@ Umzugsplanung und Verkaufshilfe. Kein Server, kein Konto, keine Cloud: Alle Date
 
 | Bereich | Funktionen |
 |---|---|
-| 📸 **KI-Erfassung** | Raum fotografieren → Claude erkennt automatisch alle Möbel & Geräte mit Name, Kategorie, Zustand, Alter, Material, Anzahl und **realistischem Wiederverkaufswert**. Du wählst per Checkbox, was übernommen wird. |
+| 📸 **KI-Erfassung** | Raum fotografieren → Claude erkennt automatisch Möbel & Geräte mit Name, Kategorie, Zustand, Alter, Material, Anzahl und **realistischem Wiederverkaufswert**. Du wählst per Checkbox, was übernommen wird. Drei Modi steuern die Granularität: **Nur große Sachen** (ignoriert Kabel & Kleinkram — ideal fürs Studio), **Alles Relevante**, **Küchen-Detail** (bündelt zu „Teller-Set (8 Stk.)“ etc.). Dazu ein freies Fokus-Feld pro Foto („nur den Tisch, Technik ignorieren“). |
+| 👯 **Duplikat-Klärung** | Zwei Haushalte = doppelte Teller, Töpfe, Kaffeemaschinen. Die KI clustert Gleichartiges über beide Standorte (auch „Kaffeemaschine“ + „Espressomaschine“), du entscheidest pro Gruppe mit einem Tipp, **welches Stück bleibt** — der Rest bekommt automatisch Entsorgen/Verschenken/Verkaufen. Ohne API-Key gibt es eine einfache namensbasierte Vorschau. |
+| 🧭 **Fahrten & Ziele** | Für Umzüge mit wenigen, gezielten Fahrten (z.B. Haus nebenan): frei definierbare Ziele wie „Rüber nebenan“, „Fahrt nach München“, „Werkstoffhof / Spende“. Jeder Gegenstand bekommt ein Ziel; pro Fahrt gibt es eine **Ladeliste** mit Packfortschritt. |
 | 🏠 **Hierarchie** | Haus → Etage → Raum → Gegenstand. Du weißt immer, wo etwas steht — auch über mehrere Standorte (Wohnung + Elternhaus). |
 | 🏷️ **Status & Priorität** | Jeder Gegenstand: *Behalten · Umziehen · Verkaufen · Verschenken · Entsorgen · Einlagern* + Priorität (*Sofort · Vor/Nach dem Umzug · Irgendwann*). Jederzeit per Tipp änderbar. |
 | 🔍 **Suche & Filter** | Volltextsuche + Filter nach Status, Kategorie, Priorität und Standort. |

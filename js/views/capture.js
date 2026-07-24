@@ -2,7 +2,7 @@
 import { db, uid } from '../db.js';
 import { CATEGORIES, CONDITIONS, newItem, fmtEuro } from '../data.js';
 import { esc, toast, downscaleImage } from '../ui.js';
-import { analyzePhoto, getAiSettings } from '../ai.js';
+import { analyzePhoto, getAiSettings, CAPTURE_MODES } from '../ai.js';
 
 export async function renderCapture(container, query = '') {
   const params = new URLSearchParams(query || '');
@@ -41,6 +41,18 @@ export async function renderCapture(container, query = '') {
       </select>
     </div>
 
+    <div class="field"><label>Was soll erfasst werden?</label>
+      <div class="segment" id="cap-mode">
+        ${Object.entries(CAPTURE_MODES).map(([k, m]) =>
+          `<button type="button" data-mode="${k}" class="${k === savedMode() ? 'active' : ''}">${m.label}</button>`).join('')}
+      </div>
+      <p class="small faint" id="cap-mode-hint" style="margin:4px 2px 0">${CAPTURE_MODES[savedMode()].hint}</p>
+    </div>
+
+    <div class="field"><label>Fokus für dieses Foto (optional)</label>
+      <input class="input" id="cap-focus" placeholder="z.B. nur den Schreibtisch, Kabel und Technik ignorieren">
+    </div>
+
     ${!apiKey ? `
       <div class="card mb-2">
         <div class="card-title">🔑 KI noch nicht verbunden</div>
@@ -59,6 +71,14 @@ export async function renderCapture(container, query = '') {
   const stage = container.querySelector('#cap-stage');
   container.querySelector('#cap-room').onchange = (e) => { roomId = e.target.value; };
 
+  let mode = savedMode();
+  container.querySelectorAll('#cap-mode button').forEach((b) => b.onclick = () => {
+    mode = b.dataset.mode;
+    sessionStorage.setItem('captureMode', mode);
+    container.querySelectorAll('#cap-mode button').forEach((x) => x.classList.toggle('active', x === b));
+    container.querySelector('#cap-mode-hint').textContent = CAPTURE_MODES[mode].hint;
+  });
+
   container.querySelector('#cap-file').onchange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -76,7 +96,7 @@ export async function renderCapture(container, query = '') {
     let aiFailed = null;
     if (apiKey) {
       try {
-        found = await analyzePhoto(base64);
+        found = await analyzePhoto(base64, { mode, focus: container.querySelector('#cap-focus')?.value });
       } catch (err) {
         aiFailed = err.message;
       }
@@ -159,4 +179,9 @@ function renderResults(stage, { blob, dataUrl, found, aiFailed, getRoomId }) {
 
 function roomHash(room) {
   return room ? `#/browse/${room.houseId}/${room.floorId}/${room.id}` : '#/browse';
+}
+
+function savedMode() {
+  const m = sessionStorage.getItem('captureMode');
+  return CAPTURE_MODES[m] ? m : 'gross';
 }

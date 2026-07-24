@@ -1,5 +1,5 @@
 // Stammdaten: Kategorien, Status, Prioritäten, Zustände, Demo-Daten.
-import { db, uid, setMeta } from './db.js';
+import { db, uid, getMeta, setMeta } from './db.js';
 
 export const CATEGORIES = {
   sofa_sessel:    { label: 'Sofa & Sessel',      icon: '🛋️' },
@@ -52,7 +52,27 @@ export const TRANSPORT = {
   ausgepackt:    { label: 'Ausgepackt',   icon: '✅' },
 };
 
-export const ROOM_ICONS = ['🛋️','🍳','🛏️','🛁','🚪','🧺','🖥️','🧸','📚','🌿','🚗','🍷','🧰','📦'];
+// Fahrten/Ziele: Wohin geht der Gegenstand? Frei anpassbar im Umzugsplaner.
+export const DEFAULT_DESTINATIONS = [
+  { id: 'nebenan',      icon: '🏡', name: 'Rüber nebenan' },
+  { id: 'muenchen',     icon: '🚗', name: 'Fahrt nach München' },
+  { id: 'werkstoffhof', icon: '♻️', name: 'Werkstoffhof / Spende' },
+];
+
+/** Umzugsplan mit garantierten Defaults (inkl. Fahrten-Liste) laden. */
+export async function getMovePlan() {
+  const saved = (await getMeta('movePlan')) || {};
+  const plan = {
+    date: '', fromAddress: '', toAddress: '', helpers: [], vehicles: [], notes: '',
+    ...saved,
+  };
+  if (!Array.isArray(plan.destinations) || !plan.destinations.length) {
+    plan.destinations = DEFAULT_DESTINATIONS.map((d) => ({ ...d }));
+  }
+  return plan;
+}
+
+export const ROOM_ICONS =['🛋️','🍳','🛏️','🛁','🚪','🧺','🖥️','🧸','📚','🌿','🚗','🍷','🧰','📦'];
 export const HOUSE_ICONS = ['🏠','🏡','🏢','🏚️','🏰','🛖'];
 
 export function newItem(roomId, partial = {}) {
@@ -72,6 +92,7 @@ export function newItem(roomId, partial = {}) {
     notes: '',
     photoIds: [],
     transport: 'offen',
+    destination: '',      // Fahrt/Ziel-Id aus dem Umzugsplan ('' = offen)
     sale: { price: null, description: '' },
     createdAt: now,
     updatedAt: now,
@@ -114,7 +135,14 @@ export async function loadDemoData() {
   ];
   for (const it of demo) await db.put('items', it);
 
+  // Ein paar Demo-Ziele zuweisen
+  demo[0].destination = 'nebenan';
+  demo[3].destination = 'muenchen';
+  demo[8].destination = 'werkstoffhof';
+  for (const it of [demo[0], demo[3], demo[8]]) await db.put('items', it);
+
   await setMeta('movePlan', {
+    destinations: DEFAULT_DESTINATIONS.map((d) => ({ ...d })),
     date: futureDate(45),
     fromAddress: 'Alte Straße 12, 50667 Köln',
     toAddress: 'Neue Allee 7, 40210 Düsseldorf',

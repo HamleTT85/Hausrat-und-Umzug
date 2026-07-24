@@ -1,12 +1,10 @@
 // Umzugsplaner: Termin, Adressen, Helfer, Fahrzeuge, Transport-Fortschritt.
-import { db, uid, getMeta, setMeta } from '../db.js';
-import { TRANSPORT } from '../data.js';
-import { esc, sheet, closeSheet, toast, statusChip } from '../ui.js';
+import { db, uid, setMeta } from '../db.js';
+import { TRANSPORT, getMovePlan } from '../data.js';
+import { esc, sheet, closeSheet, toast, statusChip, confirmSheet } from '../ui.js';
 
 export async function renderMove(container) {
-  const plan = (await getMeta('movePlan')) || {
-    date: '', fromAddress: '', toAddress: '', helpers: [], vehicles: [], notes: '',
-  };
+  const plan = await getMovePlan();
   const items = await db.all('items');
 
   const moving = items.filter((it) => ['umziehen', 'einlagern', 'behalten'].includes(it.status));
@@ -33,6 +31,39 @@ export async function renderMove(container) {
       <div class="field"><label>Notizen</label><textarea class="input" id="mv-notes" rows="2" placeholder="Halteverbot, Schlüsselübergabe …">${esc(plan.notes)}</textarea></div>
       <button class="btn btn-primary btn-block" id="mv-save">💾 Plan speichern</button>
     </div>
+
+    <div class="card mb-2">
+      <div class="card-title">🧭 Fahrten & Ziele</div>
+      <p class="small muted">Jede Fahrt ist eine Ladeliste: Weise Gegenständen auf ihrer Detailseite ein Ziel zu — hier siehst du, was auf welche Fahrt muss.</p>
+      <div class="stack">
+        ${plan.destinations.map((d) => {
+          const dItems = items.filter((it) => it.destination === d.id);
+          const packed = dItems.filter((it) => ['verpackt', 'verladen', 'angekommen', 'ausgepackt'].includes(it.transport)).length;
+          return `
+          <div class="nav-row card-link" data-dest-open="${esc(d.id)}" style="cursor:pointer">
+            <div class="nav-row-ico">${esc(d.icon)}</div>
+            <div class="grow">
+              <div class="nav-row-title">${esc(d.name)}</div>
+              <div class="nav-row-sub">${dItems.length} ${dItems.length === 1 ? 'Gegenstand' : 'Gegenstände'}${dItems.length ? ` · ${packed} verpackt+` : ''}</div>
+            </div>
+            <button class="icon-btn" data-dest-del="${esc(d.id)}" aria-label="Fahrt entfernen">✕</button>
+            <span class="nav-row-chev">›</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="row mt-1">
+        <button class="btn btn-s" id="add-dest">＋ Fahrt / Ziel</button>
+        <span class="small faint grow">Nicht zugewiesen: ${items.filter((it) => !it.destination).length}</span>
+      </div>
+    </div>
+
+    <a class="card card-link mb-2" href="#/duplicates">
+      <div class="row-between">
+        <div><div class="card-title" style="margin:0">👯 Doppelte Dinge klären</div>
+        <div class="small muted">Zwei Haushalte, zwei Kaffeemaschinen? Die KI gruppiert Dubletten — du entscheidest, was bleibt.</div></div>
+        <span class="nav-row-chev">›</span>
+      </div>
+    </a>
 
     <div class="card mb-2">
       <div class="card-title">📦 Transport-Fortschritt</div>
@@ -121,6 +152,66 @@ export async function renderMove(container) {
     plan.vehicles = plan.vehicles.filter((v) => v.id !== b.dataset.delVehicle);
     await savePlan(plan); renderMove(container);
   });
+
+  /* ---- Fahrten / Ziele ---- */
+  container.querySelectorAll('[data-dest-open]').forEach((rowEl) => {
+    rowEl.addEventListener('click', (e) => {
+      if (e.target.closest('[data-dest-del]')) return;
+      const d = plan.destinations.find((x) => x.id === rowEl.dataset.destOpen);
+      const dItems = items.filter((it) => it.destination === d.id);
+      sheet(`
+        <h3>${esc(d.icon)} ${esc(d.name)} — Ladeliste</h3>
+        ${dItems.length ? `<div class="stack">
+          ${dItems.map((it) => `
+            <a class="row-between" href="#/item/${it.id}">
+              <span class="ellipsis grow">${TRANSPORT[it.transport || 'offen'].icon} ${esc(it.name || 'Ohne Namen')}</span>
+              ${statusChip(it.status, true)}
+            </a>`).join('')}
+        </div>` : '<p class="small muted">Noch nichts zugewiesen. Öffne einen Gegenstand und wähle unter „Ziel / Fahrt“ diese Fahrt aus.</p>'}
+      `);
+    });
+  });
+
+  container.querySelectorAll('[data-dest-del]').forEach((b) => b.onclick = async (e) => {
+    e.stopPropagation();
+    const d = plan.destinations.find((x) => x.id === b.dataset.destDel);
+    const affected = items.filter((it) => it.destination === d.id);
+    if (!(await confirmSheet('Fahrt entfernen?', affected.length
+      ? `„${d.name}“ entfernen? ${affected.length} zugewiesene Gegenstände werden wieder auf „Offen“ gesetzt.`
+      : `„${d.name}“ entfernen?`, 'Entfernen'))) return;
+    for (const it of affected) await db.put('items', { ...it, destination: '' });
+    plan.destinations = plan.destinations.filter((x) => x.id !== d.id);
+    await savePlan(plan); renderMove(container);
+  });
+
+  container.querySelector('#add-dest').onclick = () => {
+    const box = sheet(`
+      <h3>Neue Fahrt / neues Ziel</h3>
+      <div class="field"><label>Name</label>
+        <input class="input" id="d-name" placeholder="z.B. Fahrt zum Sperrmüll, Kiste zu Oma"></div>
+      <div class="field"><label>Symbol</label>
+        <div class="chip-row" id="d-icons">
+          ${['🚗','🚚','♻️','🏡','🏠','📦','🗑️','🎁','🚐'].map((i, idx) =>
+            `<button class="chip chip-select ${idx === 0 ? 'selected' : ''}" data-i="${i}">${i}</button>`).join('')}
+        </div></div>
+      <div class="row mt-2">
+        <button class="btn grow" id="d-cancel">Abbrechen</button>
+        <button class="btn btn-primary grow" id="d-save">Anlegen</button>
+      </div>`);
+    let icon = '🚗';
+    box.querySelectorAll('#d-icons .chip-select').forEach((c) => c.onclick = () => {
+      icon = c.dataset.i;
+      box.querySelectorAll('#d-icons .chip-select').forEach((x) => x.classList.toggle('selected', x === c));
+    });
+    box.querySelector('#d-cancel').onclick = closeSheet;
+    box.querySelector('#d-save').onclick = async () => {
+      const name = box.querySelector('#d-name').value.trim();
+      if (!name) return toast('Bitte einen Namen eingeben');
+      plan.destinations.push({ id: uid('dest'), icon, name });
+      await savePlan(plan); closeSheet(); renderMove(container);
+    };
+    box.querySelector('#d-name').focus();
+  };
 }
 
 function personSheet(kind, onSave) {
