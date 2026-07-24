@@ -196,7 +196,8 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
         const selected = (sh.found || []).filter((_, fi) => stage.querySelector(`[data-check="${si}:${fi}"]`)?.checked);
         if (!selected.length) continue;
 
-        const photo = { id: uid('ph'), itemId: null, blob: sh.blob, createdAt: new Date().toISOString() };
+        const thumb = (await downscaleImage(sh.blob, 640, 0.72)).blob;
+        const photo = { id: uid('ph'), itemId: null, blob: sh.blob, thumb, createdAt: new Date().toISOString() };
         await db.put('photos', photo);
 
         let photoOwner = null;
@@ -232,7 +233,8 @@ function renderResults(stage, { shots, aiFailed, getRoomId }) {
   stage.querySelector('#cap-manual')?.addEventListener('click', async () => {
     const roomId = getRoomId();
     try {
-      const photo = { id: uid('ph'), itemId: null, blob: shots[0].blob, createdAt: new Date().toISOString() };
+      const thumb = (await downscaleImage(shots[0].blob, 640, 0.72)).blob;
+      const photo = { id: uid('ph'), itemId: null, blob: shots[0].blob, thumb, createdAt: new Date().toISOString() };
       await db.put('photos', photo);
       const it = newItem(roomId, { name: '', photoIds: [photo.id] });
       await db.put('items', it);

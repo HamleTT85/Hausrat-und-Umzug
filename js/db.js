@@ -115,7 +115,8 @@ export async function exportAll() {
   );
   const photosOut = [];
   for (const p of photos) {
-    photosOut.push({ ...p, blob: undefined, dataUrl: await blobToDataUrl(p.blob) });
+    // thumb wird nicht exportiert — es wird beim Anzeigen automatisch neu erzeugt
+    photosOut.push({ ...p, blob: undefined, thumb: undefined, dataUrl: await blobToDataUrl(p.blob) });
   }
   return { app: 'hausrat', version: 1, exportedAt: new Date().toISOString(), houses, floors, rooms, items, photos: photosOut, meta };
 }

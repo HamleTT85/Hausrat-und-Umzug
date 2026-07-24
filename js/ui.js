@@ -1,5 +1,5 @@
 // UI-Helfer: HTML-Rendering, Toasts, Bottom-Sheets, Thumbnails.
-import { db } from './db.js';
+import { db, uid } from './db.js';
 import { CATEGORIES, STATUSES } from './data.js';
 
 export function esc(s) {
@@ -59,7 +59,12 @@ export function catIcon(category) {
   return (CATEGORIES[category] || CATEGORIES.sonstiges).icon;
 }
 
-// ---------- Foto-Thumbnails (Object-URLs mit Cache) ----------
+// ---------- Foto-Thumbnails ----------
+// Vorschauen nutzen kleine Thumbnail-Blobs (~640px) statt der Originale:
+// Ein 1568px-Foto kostet den Browser ~7 MB entpackten Bildspeicher pro <img> —
+// bei vielen Karten läuft damit v.a. iOS Safari voll („Zu wenig Speicher“).
+// Für ältere Fotos ohne Thumbnail wird es beim ersten Anzeigen erzeugt und
+// gespeichert (reine Ergänzung — der Datensatz bleibt unangetastet).
 const urlCache = new Map();
 
 export async function photoUrl(photoId) {
@@ -67,9 +72,24 @@ export async function photoUrl(photoId) {
   if (urlCache.has(photoId)) return urlCache.get(photoId);
   const p = await db.get('photos', photoId);
   if (!p || !p.blob) return null;
-  const url = URL.createObjectURL(p.blob);
+  let blob = p.thumb;
+  if (!blob) {
+    try {
+      blob = (await downscaleImage(p.blob, 640, 0.72)).blob;
+      await db.put('photos', { ...p, thumb: blob });
+    } catch {
+      blob = p.blob; // Notfall: dann eben das Original
+    }
+  }
+  const url = URL.createObjectURL(blob);
   urlCache.set(photoId, url);
   return url;
+}
+
+/** Volle Auflösung (unkachiert) — Aufrufer muss die URL wieder freigeben. */
+export async function photoFullUrl(photoId) {
+  const p = await db.get('photos', photoId);
+  return p?.blob ? URL.createObjectURL(p.blob) : null;
 }
 
 export async function itemThumb(item) {
@@ -83,7 +103,9 @@ export async function renderItemCard(item) {
   const thumb = await itemThumb(item);
   return `
     <a class="item-card" href="#/item/${item.id}">
-      <div class="item-thumb">${thumb}</div>
+      <div class="item-thumb">${thumb}
+        <button class="hero-btn" data-hero="${item.id}" title="Neues Titelfoto aufnehmen" aria-label="Neues Titelfoto aufnehmen">📸</button>
+      </div>
       <div class="item-card-body">
         <div class="item-card-name">${esc(item.name || 'Ohne Namen')}</div>
         <div class="item-card-meta">
@@ -92,6 +114,22 @@ export async function renderItemCard(item) {
         </div>
       </div>
     </a>`;
+}
+
+/**
+ * Foto (Datei/Blob) verkleinert + mit Thumbnail für einen Gegenstand speichern.
+ * asCover: true → wird das neue Titelbild (Hero-Shot).
+ */
+export async function savePhotoForItem(itemId, fileOrBlob, { asCover = false } = {}) {
+  const item = await db.get('items', itemId);
+  if (!item) throw new Error('Gegenstand nicht gefunden');
+  const { blob } = await downscaleImage(fileOrBlob);
+  const thumb = (await downscaleImage(blob, 640, 0.72)).blob;
+  const photo = { id: uid('ph'), itemId, blob, thumb, createdAt: new Date().toISOString() };
+  await db.put('photos', photo);
+  const photoIds = asCover ? [photo.id, ...(item.photoIds || [])] : [...(item.photoIds || []), photo.id];
+  await db.put('items', { ...item, photoIds, updatedAt: new Date().toISOString() });
+  return photo;
 }
 
 // Bild verkleinern (max. Kante) → kompakter JPEG-Blob.

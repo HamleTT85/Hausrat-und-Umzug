@@ -1,7 +1,7 @@
 // Detailseite: Fotogalerie, alle Eigenschaften, Status, QR-Code, Verkauf.
 import { db, uid, deleteItemDeep, getMeta } from '../db.js';
 import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMovePlan } from '../data.js';
-import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, downscaleImage, blobToBase64, catIcon } from '../ui.js';
+import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
 
@@ -196,11 +196,7 @@ export async function renderItem(container, itemId) {
     e.target.value = '';
     if (!file) return;
     try {
-      const { blob } = await downscaleImage(file);
-      const photo = { id: uid('ph'), itemId: item.id, blob, createdAt: new Date().toISOString() };
-      await db.put('photos', photo);
-      item.photoIds = [...(item.photoIds || []), photo.id];
-      await db.put('items', { ...item, updatedAt: new Date().toISOString() });
+      await savePhotoForItem(item.id, file);
       toast('Foto hinzugefügt 📷');
       renderItem(container, itemId);
     } catch (err) {
@@ -215,9 +211,18 @@ export async function renderItem(container, itemId) {
       const box = sheet(`
         <h3>Foto</h3>
         <div class="stack">
+          <button class="btn" id="p-view">🔍 Groß ansehen</button>
           <button class="btn" id="p-cover">⭐ Als Titelbild verwenden</button>
           <button class="btn btn-danger" id="p-del">🗑️ Foto löschen</button>
         </div>`);
+      box.querySelector('#p-view').onclick = async () => {
+        const fullUrl = await photoFullUrl(pid);
+        if (!fullUrl) return;
+        const viewer = sheet(`<img src="${fullUrl}" alt="" style="width:100%;border-radius:12px">`);
+        const release = () => URL.revokeObjectURL(fullUrl);
+        viewer.querySelector('img').onclick = () => { closeSheet(); release(); };
+        setTimeout(release, 60000); // spätestens nach einer Minute freigeben
+      };
       box.querySelector('#p-cover').onclick = async () => {
         item.photoIds = [pid, ...item.photoIds.filter((x) => x !== pid)];
         await db.put('items', { ...item, updatedAt: new Date().toISOString() });

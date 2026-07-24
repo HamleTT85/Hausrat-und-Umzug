@@ -1,5 +1,5 @@
-// App-Einstieg: Hash-Router, Theme, Navigation.
-import { closeSheet } from './ui.js';
+// App-Einstieg: Hash-Router, Theme, Navigation, Hero-Shot.
+import { closeSheet, toast, savePhotoForItem } from './ui.js';
 import { getMeta, setMeta } from './db.js';
 
 import { renderDashboard } from './views/dashboard.js';
@@ -73,8 +73,42 @@ async function initTheme() {
   });
 }
 
+// ---------- Hero-Shot: 📸 auf einer Item-Karte → neues Titelfoto ----------
+function initHeroShot() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.setAttribute('capture', 'environment');
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  let targetId = null;
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-hero]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    targetId = btn.dataset.hero;
+    input.click();
+  }, true);
+
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !targetId) return;
+    try {
+      await savePhotoForItem(targetId, file, { asCover: true });
+      toast('Neues Titelfoto gespeichert 📸');
+      route(); // aktuelle Ansicht mit dem neuen Bild neu aufbauen
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, 5000);
+    }
+  };
+}
+
 window.addEventListener('hashchange', route);
 initTheme().then(route);
+initHeroShot();
 
 // Browser bitten, unsere Daten dauerhaft zu behalten (verhindert Löschung
 // bei Speicherdruck und erhöht auf manchen Geräten das Kontingent).
