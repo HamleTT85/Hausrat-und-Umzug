@@ -71,7 +71,11 @@ export async function getMovePlan() {
     plan.destinations = DEFAULT_DESTINATIONS.map((d) => ({ ...d }));
   }
   if (!Array.isArray(plan.people) || plan.people.length < 2) {
-    plan.people = ['Ich', 'Partnerin'];
+    plan.people = ['Pascal', 'Nadine'];
+  }
+  // Alte Platzhalter-Namen einmalig auf die echten umstellen
+  if (plan.people[0] === 'Ich' && plan.people[1] === 'Partnerin') {
+    plan.people = ['Pascal', 'Nadine'];
   }
   return plan;
 }

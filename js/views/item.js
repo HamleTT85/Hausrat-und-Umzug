@@ -104,6 +104,11 @@ export async function renderItem(container, itemId) {
       <div class="field"><label>Anzeigentext</label>
         <textarea class="input" id="sale-desc" rows="5" placeholder="Noch leer — lass dir von der KI einen Vorschlag schreiben.">${esc(item.sale?.description || '')}</textarea></div>
       <button class="btn btn-block" id="ai-listing">✨ KI: Anzeige & Preis vorschlagen</button>
+      <div class="row mt-1">
+        <button class="btn btn-s grow" id="sale-copy">📋 Text kopieren</button>
+        <button class="btn btn-s grow" id="sale-share">📤 Fotos teilen</button>
+      </div>
+      <p class="small faint mt-1" style="margin-bottom:0">Für Kleinanzeigen: Text kopieren, Fotos teilen (oder herunterladen) — fertig ist die Anzeige.</p>
     </div>` : ''}
 
     <div class="card mb-2">
@@ -242,6 +247,49 @@ export async function renderItem(container, itemId) {
     } finally {
       btn.disabled = false; btn.textContent = '✨ KI: Anzeige & Preis vorschlagen';
     }
+  });
+
+  // Anzeigentext kopieren (für Kleinanzeigen & Co.)
+  container.querySelector('#sale-copy')?.addEventListener('click', async () => {
+    const price = container.querySelector('#sale-price')?.value;
+    const desc = container.querySelector('#sale-desc')?.value?.trim();
+    const text = [
+      item.name,
+      desc || '',
+      price ? `Preis: ${price} € VB` : '',
+    ].filter(Boolean).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Anzeigentext kopiert 📋');
+    } catch {
+      toast('Kopieren nicht möglich — Text bitte markieren');
+    }
+  });
+
+  // Fotos teilen (Web Share) oder als Download
+  container.querySelector('#sale-share')?.addEventListener('click', async () => {
+    if (!item.photoIds?.length) return toast('Dieser Gegenstand hat noch keine Fotos');
+    const files = [];
+    for (let i = 0; i < item.photoIds.length; i++) {
+      const p = await db.get('photos', item.photoIds[i]);
+      if (p?.blob) files.push(new File([p.blob], `${(item.name || 'foto').replace(/[^\wäöüß-]+/gi, '_')}_${i + 1}.jpg`, { type: 'image/jpeg' }));
+    }
+    if (!files.length) return toast('Keine Fotos gefunden');
+    if (navigator.canShare?.({ files })) {
+      try {
+        await navigator.share({ files, title: item.name || 'HausRat' });
+        return;
+      } catch { /* abgebrochen → Fallback */ }
+    }
+    // Fallback: Fotos einzeln herunterladen
+    for (const f of files) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(f);
+      a.download = f.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    toast(`${files.length} ${files.length === 1 ? 'Foto' : 'Fotos'} heruntergeladen ⬇️`);
   });
 }
 

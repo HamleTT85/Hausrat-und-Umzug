@@ -80,8 +80,8 @@ export async function renderDecide(container) {
       </div>`);
     box.querySelector('#pp-cancel').onclick = closeSheet;
     box.querySelector('#pp-save').onclick = async () => {
-      const n1 = box.querySelector('#pp1').value.trim() || 'Ich';
-      const n2 = box.querySelector('#pp2').value.trim() || 'Partnerin';
+      const n1 = box.querySelector('#pp1').value.trim() || 'Pascal';
+      const n2 = box.querySelector('#pp2').value.trim() || 'Nadine';
       // Wünsche auf die neuen Namen umziehen
       for (const it of items) {
         if (!it.wishes) continue;

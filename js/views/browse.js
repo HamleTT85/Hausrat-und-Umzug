@@ -1,6 +1,6 @@
 // Bestand: hierarchische Navigation Haus → Etage → Raum → Gegenstände.
 import { db, uid, deleteHouseDeep, deleteFloorDeep, deleteRoomDeep } from '../db.js';
-import { HOUSE_ICONS, ROOM_ICONS, fmtEuro } from '../data.js';
+import { HOUSE_ICONS, ROOM_ICONS, CATEGORIES, fmtEuro } from '../data.js';
 import { esc, el, sheet, closeSheet, confirmSheet, toast, renderItemCard } from '../ui.js';
 
 // path: '' | houseId | houseId/floorId | houseId/floorId/roomId
@@ -12,45 +12,80 @@ export async function renderBrowse(container, path = '') {
   return listRoomItems(container, parts[0], parts[1], parts[2]);
 }
 
-/* ---------------- Häuser ---------------- */
+/* ---------------- Übersicht: alle Räume direkt anklickbar ---------------- */
 async function listHouses(container) {
   const houses = await db.all('houses');
   const floors = await db.all('floors');
   const rooms = await db.all('rooms');
   const items = await db.all('items');
 
-  const rows = houses.map((h) => {
-    const hFloors = floors.filter((f) => f.houseId === h.id);
-    const hRooms = rooms.filter((r) => r.houseId === h.id);
-    const hItems = items.filter((it) => hRooms.some((r) => r.id === it.roomId));
-    return `
-      <div class="nav-row card-link" data-id="${h.id}">
-        <a class="row grow" style="gap:12px" href="#/browse/${h.id}">
-          <div class="nav-row-ico">${esc(h.icon)}</div>
-          <div class="grow">
-            <div class="nav-row-title">${esc(h.name)}</div>
-            <div class="nav-row-sub">${hFloors.length} Etagen · ${hRooms.length} Räume · ${hItems.length} Dinge</div>
+  const sections = houses.map((h) => {
+    const hFloors = floors.filter((f) => f.houseId === h.id).sort((a, b) => (b.level ?? 0) - (a.level ?? 0));
+    const floorBlocks = hFloors.map((f) => {
+      const fRooms = rooms.filter((r) => r.floorId === f.id);
+      const tiles = fRooms.map((r) => {
+        const n = items.filter((it) => it.roomId === r.id).length;
+        return `
+          <a class="room-tile" href="#/browse/${h.id}/${f.id}/${r.id}">
+            <span class="room-tile-ico">${esc(r.icon)}</span>
+            <span class="grow">
+              <span class="room-tile-name">${esc(r.name)}</span>
+              <span class="room-tile-sub">${n} ${n === 1 ? 'Ding' : 'Dinge'}</span>
+            </span>
+            <button class="room-tile-edit" data-edit-room="${r.id}" data-house="${h.id}" data-floor="${f.id}" aria-label="Raum bearbeiten">✏️</button>
+          </a>`;
+      }).join('');
+      return `
+        <div class="floor-block">
+          <div class="floor-head">
+            <span>🪜 ${esc(f.name)}</span>
+            <span class="row" style="gap:4px">
+              <button class="chip status-mini" data-edit-floor="${f.id}" data-house="${h.id}">✏️</button>
+              <button class="chip status-mini" data-add-room="${f.id}" data-house="${h.id}">＋ Raum</button>
+            </span>
           </div>
-        </a>
-        <button class="icon-btn" data-edit="${h.id}" aria-label="Bearbeiten">✏️</button>
-        <span class="nav-row-chev">›</span>
+          ${fRooms.length ? `<div class="room-grid">${tiles}</div>` : '<p class="small faint" style="margin:4px 0 0">Noch kein Raum auf dieser Etage.</p>'}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="card mb-2">
+        <div class="row-between">
+          <div class="card-title" style="margin:0">${esc(h.icon)} ${esc(h.name)}</div>
+          <span class="row" style="gap:6px">
+            <button class="chip status-mini" data-add-floor="${h.id}">＋ Etage</button>
+            <button class="icon-btn" data-edit="${h.id}" aria-label="Bearbeiten" style="width:34px;height:34px">✏️</button>
+          </span>
+        </div>
+        ${floorBlocks || '<p class="small faint" style="margin:8px 0 0">Noch keine Etage — leg mit „＋ Etage“ los.</p>'}
       </div>`;
   }).join('');
 
   container.innerHTML = `
     <h1 class="page-title">Dein <em>Bestand</em></h1>
-    <p class="page-sub">Haus → Etage → Raum → Gegenstand. So weißt du immer, wo etwas steht.</p>
-    <div class="stack">${rows || ''}</div>
+    <p class="page-sub">Tippe direkt auf einen Raum — da liegt alles drin.</p>
+    ${sections}
     ${!houses.length ? `<div class="empty"><div class="empty-ico">🏡</div><div class="empty-title">Noch kein Zuhause angelegt</div><p>Leg los — Wohnung, Haus, Keller, was du willst.</p></div>` : ''}
-    <button class="btn btn-primary btn-block mt-2" id="add-house">＋ Haus / Wohnung hinzufügen</button>
+    <button class="btn btn-primary btn-block mt-1" id="add-house">＋ Haus / Wohnung hinzufügen</button>
   `;
 
   container.querySelector('#add-house').onclick = () => editHouseSheet(null, container);
   container.querySelectorAll('[data-edit]').forEach((b) => {
+    b.onclick = async () => editHouseSheet(await db.get('houses', b.dataset.edit), container);
+  });
+  container.querySelectorAll('[data-add-floor]').forEach((b) => {
+    b.onclick = () => editFloorSheet(null, b.dataset.addFloor, container, () => listHouses(container));
+  });
+  container.querySelectorAll('[data-edit-floor]').forEach((b) => {
+    b.onclick = async () => editFloorSheet(await db.get('floors', b.dataset.editFloor), b.dataset.house, container, () => listHouses(container));
+  });
+  container.querySelectorAll('[data-add-room]').forEach((b) => {
+    b.onclick = () => editRoomSheet(null, b.dataset.house, b.dataset.addRoom, container, () => listHouses(container));
+  });
+  container.querySelectorAll('[data-edit-room]').forEach((b) => {
     b.onclick = async (e) => {
-      e.preventDefault();
-      const h = await db.get('houses', b.dataset.edit);
-      editHouseSheet(h, container);
+      e.preventDefault(); e.stopPropagation();
+      editRoomSheet(await db.get('rooms', b.dataset.editRoom), b.dataset.house, b.dataset.floor, container, () => listHouses(container));
     };
   });
 }
@@ -125,7 +160,8 @@ async function listFloors(container, houseId) {
   });
 }
 
-function editFloorSheet(floor, houseId, container) {
+function editFloorSheet(floor, houseId, container, onDone = null) {
+  const done = onDone || (() => listFloors(container, houseId));
   const isNew = !floor;
   const f = floor || { id: uid('floor'), houseId, name: '', level: 0 };
   const box = sheet(`
@@ -144,12 +180,12 @@ function editFloorSheet(floor, houseId, container) {
     const name = box.querySelector('#f-name').value.trim();
     if (!name) return toast('Bitte einen Namen eingeben');
     await db.put('floors', { ...f, name, level: Number(box.querySelector('#f-level').value) || 0 });
-    closeSheet(); listFloors(container, houseId);
+    closeSheet(); done();
   };
   box.querySelector('#f-del')?.addEventListener('click', async () => {
     closeSheet();
     if (await confirmSheet('Etage löschen?', `„${f.name}“ mit allen Räumen und Gegenständen löschen?`)) {
-      await deleteFloorDeep(f.id); toast('Gelöscht'); listFloors(container, houseId);
+      await deleteFloorDeep(f.id); toast('Gelöscht'); done();
     }
   });
 }
@@ -194,7 +230,8 @@ async function listRooms(container, houseId, floorId) {
   });
 }
 
-function editRoomSheet(room, houseId, floorId, container) {
+function editRoomSheet(room, houseId, floorId, container, onDone = null) {
+  const done = onDone || (() => listRooms(container, houseId, floorId));
   const isNew = !room;
   const r = room || { id: uid('room'), houseId, floorId, name: '', icon: '🚪' };
   const box = sheet(`
@@ -218,12 +255,12 @@ function editRoomSheet(room, houseId, floorId, container) {
     const name = box.querySelector('#r-name').value.trim();
     if (!name) return toast('Bitte einen Namen eingeben');
     await db.put('rooms', { ...r, name, icon });
-    closeSheet(); listRooms(container, houseId, floorId);
+    closeSheet(); done();
   };
   box.querySelector('#r-del')?.addEventListener('click', async () => {
     closeSheet();
     if (await confirmSheet('Raum löschen?', `„${r.name}“ mit allen Gegenständen löschen?`)) {
-      await deleteRoomDeep(r.id); toast('Gelöscht'); listRooms(container, houseId, floorId);
+      await deleteRoomDeep(r.id); toast('Gelöscht'); done();
     }
   });
 }
@@ -235,15 +272,36 @@ async function listRoomItems(container, houseId, floorId, roomId) {
   ]);
   if (!room) { location.hash = '#/browse'; return; }
   const items = await db.byIndex('items', 'roomId', roomId);
-  const cards = await Promise.all(items.map(renderItemCard));
   const val = items.reduce((s, it) => s + (Number(it.value) || 0), 0);
+
+  // Nach Kategorien gruppieren — übersichtlicher als eine lange Liste
+  const groups = new Map();
+  for (const it of items) {
+    const key = CATEGORIES[it.category] ? it.category : 'sonstiges';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+  const orderedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  const sections = await Promise.all(orderedGroups.map(async ([catKey, catItems]) => {
+    const cat = CATEGORIES[catKey];
+    const cards = await Promise.all(catItems.map(renderItemCard));
+    const catVal = catItems.reduce((s, it) => s + (Number(it.value) || 0), 0);
+    return `
+      <div class="mb-2">
+        <div class="row-between mb-1">
+          <div class="card-title" style="margin:0">${cat.icon} ${cat.label} <span class="faint small">(${catItems.length})</span></div>
+          <span class="small muted">${fmtEuro(catVal)}</span>
+        </div>
+        <div class="item-grid">${cards.join('')}</div>
+      </div>`;
+  }));
 
   container.innerHTML = `
     <div class="crumbs">
       <a href="#/browse">Bestand</a><span class="sep">›</span>
-      <a href="#/browse/${houseId}">${esc(house?.name || '')}</a><span class="sep">›</span>
-      <a href="#/browse/${houseId}/${floorId}">${esc(floor?.name || '')}</a><span class="sep">›</span>
-      <span>${esc(room.name)}</span>
+      <a href="#/browse">${esc(house?.name || '')}</a><span class="sep">›</span>
+      <span>${esc(room.name)} <span class="faint">(${esc(floor?.name || '')})</span></span>
     </div>
     <div class="row-between">
       <h1 class="page-title mt-0">${esc(room.icon)} ${esc(room.name)}</h1>
@@ -253,8 +311,8 @@ async function listRoomItems(container, houseId, floorId, roomId) {
       <a class="btn btn-primary grow" href="#/capture?room=${roomId}">📸 Foto & KI-Erkennung</a>
       <button class="btn" id="add-manual">＋ Manuell</button>
     </div>
-    ${cards.length
-      ? `<div class="item-grid">${cards.join('')}</div>`
+    ${sections.length
+      ? sections.join('')
       : `<div class="empty"><div class="empty-ico">📸</div><div class="empty-title">Dieser Raum ist noch leer</div><p>Mach ein Foto — die KI erkennt Möbel & Co. automatisch.</p></div>`}
   `;
 
