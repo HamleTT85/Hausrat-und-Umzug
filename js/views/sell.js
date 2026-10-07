@@ -1,11 +1,14 @@
-// Verkaufsliste: alle Gegenstände mit Status „verkaufen", inkl. KI-Hilfe.
+// Verkaufsliste: alle Gegenstände mit Status „verkaufen", inkl. KI-Hilfe & PDF.
 import { db } from '../db.js';
 import { fmtEuro } from '../data.js';
 import { esc, itemThumb, toast } from '../ui.js';
+import { generateSalesPdf } from '../pdf.js';
 
 export async function renderSell(container) {
   const items = (await db.all('items')).filter((it) => it.status === 'verkaufen');
-  const total = items.reduce((s, it) => s + (Number(it.sale?.price ?? it.value) || 0), 0);
+  const rooms = await db.all('rooms');
+  const roomById = Object.fromEntries(rooms.map((r) => [r.id, r]));
+  const total = items.reduce((s, it) => s + ((Number(it.sale?.price ?? it.value) || 0) * (it.quantity || 1)), 0);
 
   const rows = await Promise.all(items.map(async (it) => {
     const thumb = await itemThumb(it);
@@ -34,13 +37,42 @@ export async function renderSell(container) {
         <div class="card-title">💡 Tipp</div>
         <p class="small muted" style="margin:0">Öffne einen Gegenstand und tippe auf <b>„✨ KI: Anzeige & Preis vorschlagen“</b> — du bekommst Titel, ehrlichen Anzeigentext und einen realistischen Preis für Kleinanzeigen & Co. Den Text kannst du dort direkt kopieren.</p>
       </div>
-      <button class="btn btn-block mt-2" id="copy-all">📋 Komplette Liste kopieren</button>
+      <button class="btn btn-primary btn-block mt-2" id="make-pdf">📄 Als PDF (zum Verschicken)</button>
+      <button class="btn btn-block mt-1" id="copy-all">📋 Komplette Liste kopieren</button>
     ` : `
       <div class="empty"><div class="empty-ico">🏷️</div>
       <div class="empty-title">Noch nichts zu verkaufen</div>
       <p>Beim Ausmisten schlummert oft mehr Geld, als man denkt.</p>
       <a class="btn btn-primary" href="#/search">Bestand durchsehen</a></div>`}
   `;
+
+  container.querySelector('#make-pdf')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = '📄 PDF wird erstellt …';
+    try {
+      const { blob, filename } = await generateSalesPdf(items, {
+        title: 'Zu verkaufen',
+        roomName: (it) => roomById[it.roomId]?.name || '',
+      });
+      const file = new File([blob], filename, { type: 'application/pdf' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Verkaufsliste' }); return; }
+        catch { /* abgebrochen → Download */ }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      toast('PDF erstellt ⬇️');
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, 5000);
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  });
 
   container.querySelector('#copy-all')?.addEventListener('click', async () => {
     const lines = items.map((it) => {
