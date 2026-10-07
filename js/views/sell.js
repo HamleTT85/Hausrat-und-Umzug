@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { fmtEuro } from '../data.js';
 import { esc, itemThumb, toast } from '../ui.js';
 import { generateSalesPdf } from '../pdf.js';
+import { exportItemsPhotosZip } from '../zip.js';
 
 export async function renderSell(container) {
   const items = (await db.all('items')).filter((it) => it.status === 'verkaufen');
@@ -38,6 +39,7 @@ export async function renderSell(container) {
         <p class="small muted" style="margin:0">Öffne einen Gegenstand und tippe auf <b>„✨ KI: Anzeige & Preis vorschlagen“</b> — du bekommst Titel, ehrlichen Anzeigentext und einen realistischen Preis für Kleinanzeigen & Co. Den Text kannst du dort direkt kopieren.</p>
       </div>
       <button class="btn btn-primary btn-block mt-2" id="make-pdf">📄 Als PDF (zum Verschicken)</button>
+      <button class="btn btn-block mt-1" id="export-zip">📦 Alle Verkaufs-Fotos als ZIP</button>
       <button class="btn btn-block mt-1" id="copy-all">📋 Komplette Liste kopieren</button>
     ` : `
       <div class="empty"><div class="empty-ico">🏷️</div>
@@ -67,6 +69,32 @@ export async function renderSell(container) {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 8000);
       toast('PDF erstellt ⬇️');
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, 5000);
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  });
+
+  container.querySelector('#export-zip')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = '📦 ZIP wird erstellt …';
+    try {
+      const zip = await exportItemsPhotosZip(db, items, (it) => roomById[it.roomId]?.name || '');
+      const filename = `verkaufs-fotos-${new Date().toISOString().slice(0, 10)}.zip`;
+      const file = new File([zip], filename, { type: 'application/zip' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Verkaufs-Fotos' }); return; }
+        catch { /* abgebrochen → Download */ }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zip);
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      toast('ZIP erstellt ⬇️');
     } catch (err) {
       toast(`⚠️ ${err.message}`, 5000);
     } finally {

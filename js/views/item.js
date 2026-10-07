@@ -4,6 +4,7 @@ import { CATEGORIES, STATUSES, PRIORITIES, CONDITIONS, TRANSPORT, fmtEuro, getMo
 import { esc, sheet, closeSheet, confirmSheet, toast, photoUrl, photoFullUrl, savePhotoForItem, downscaleImage, blobToBase64, catIcon, reportPhotoError, itemThumb } from '../ui.js';
 import { qrImgTag, itemQrPayload } from '../qr.js';
 import { suggestListing } from '../ai.js';
+import { exportSingleItemPhotos } from '../zip.js';
 
 export async function renderItem(container, itemId) {
   const item = await db.get('items', itemId);
@@ -116,6 +117,12 @@ export async function renderItem(container, itemId) {
     </div>` : ''}
 
     <div class="card mb-2">
+      <div class="card-title">📦 Fotos exportieren</div>
+      <p class="small muted">Lädt alle Fotos dieses Gegenstands herunter — bei mehreren als ZIP, richtig benannt.</p>
+      <button class="btn btn-block" id="item-export-photos">📦 Fotos herunterladen</button>
+    </div>
+
+    <div class="card mb-2">
       <div class="card-title">🔀 Zusammenführen</div>
       <p class="small muted">Gehört woanders noch etwas zum selben Ding (z.B. weitere Teller)? Führe andere Einträge hier hinein — deren Fotos und Anzahl kommen dazu, Name & Beschreibung von <b>diesem</b> Eintrag bleiben.</p>
       <button class="btn btn-block" id="item-merge">🔀 Einträge hierher zusammenführen</button>
@@ -168,6 +175,34 @@ export async function renderItem(container, itemId) {
 
   // Zusammenführen
   container.querySelector('#item-merge').onclick = () => openMergeSheet(container, item, itemId, () => save(true));
+
+  // Fotos exportieren (einzeln → JPG, mehrere → ZIP)
+  container.querySelector('#item-export-photos')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = '📦 wird vorbereitet …';
+    try {
+      const res = await exportSingleItemPhotos(db, item);
+      if (!res) { toast('Dieser Gegenstand hat noch keine Fotos.', 4000); return; }
+      const type = res.filename.endsWith('.zip') ? 'application/zip' : 'image/jpeg';
+      const file = new File([res.blob], res.filename, { type });
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: item.name || 'Fotos' }); return; }
+        catch { /* abgebrochen → Download */ }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(res.blob);
+      a.download = res.filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      toast('Fotos exportiert ⬇️');
+    } catch (err) {
+      toast(`⚠️ ${err.message}`, 5000);
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  });
 
   async function save(silent = false) {
     const f = container.querySelector('#item-form');
